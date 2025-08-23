@@ -1,6 +1,6 @@
 [package]
 name = "bandcamp-sync"
-version = "0.1.1"
+version = "0.2.0"
 edition = "2024"
 authors = ["Chris M <hello@chrismiller.xyz>"]
 description = "Sync your Bandcamp collection to local and remote destinations"
