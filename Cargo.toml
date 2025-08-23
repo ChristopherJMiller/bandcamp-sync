@@ -35,6 +35,9 @@ html-escape = "0.2"
 indicatif = "0.17"
 colored = "2.1"
 
+# System info
+num_cpus = "1.16"
+
 # Security
 keyring = { version = "3.6", features = [
     "apple-native",

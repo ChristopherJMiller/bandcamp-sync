@@ -28,38 +28,38 @@ pub struct CollectionItem {
     pub album_title: Option<String>,
     pub tralbum_id: i64,
     pub tralbum_type: String,
-    
+
     // Dates
     pub added: String,
     pub updated: String,
     pub purchased: Option<String>,
-    
+
     // Art
     pub item_art_id: Option<i64>,
     pub item_art_url: Option<String>,
     pub band_image_id: Option<i64>,
-    
+
     // Track info
     pub featured_track: Option<i64>,
     pub featured_track_title: Option<String>,
     pub featured_track_duration: Option<f64>,
     pub featured_track_url: Option<String>,
     pub num_streamable_tracks: Option<i32>,
-    
+
     // Purchase info
     pub sale_item_id: Option<i64>,
     pub sale_item_type: Option<String>,
     pub price: Option<Value>,
     pub currency: Option<String>,
     pub discount: Option<f64>,
-    
+
     // Metadata
     pub also_collected_count: i32,
     pub genre_id: Option<i64>,
     pub band_location: Option<String>,
     pub label: Option<String>,
     pub label_id: Option<i64>,
-    
+
     // Flags
     #[serde(deserialize_with = "bool_from_int")]
     pub download_available: Option<bool>,
@@ -79,9 +79,12 @@ pub struct CollectionItem {
     pub is_subscription_item: Option<bool>,
     #[serde(deserialize_with = "bool_from_int")]
     pub is_set_price: Option<bool>,
-    
+
     // Other fields we don't need but might be in response
-    #[serde(skip_serializing_if = "Option::is_none", deserialize_with = "bool_from_int")]
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "bool_from_int"
+    )]
     pub hidden: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub index: Option<i32>,
@@ -107,13 +110,25 @@ pub struct CollectionItem {
     pub release_count: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub message_count: Option<i32>,
-    #[serde(skip_serializing_if = "Option::is_none", deserialize_with = "bool_from_int")]
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "bool_from_int"
+    )]
     pub merch_sold_out: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none", deserialize_with = "bool_from_int")]
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "bool_from_int"
+    )]
     pub require_email: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none", deserialize_with = "bool_from_int")]
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "bool_from_int"
+    )]
     pub licensed_item: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none", deserialize_with = "bool_from_int")]
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "bool_from_int"
+    )]
     pub featured_track_is_custom: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub featured_track_number: Option<i32>,

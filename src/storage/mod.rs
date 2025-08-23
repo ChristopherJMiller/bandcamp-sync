@@ -1,15 +1,15 @@
 use anyhow::Result;
 use async_trait::async_trait;
-use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
+use std::path::{Path, PathBuf};
 
 pub mod local;
-pub mod webdav;
 pub mod sync;
+pub mod webdav;
 
 pub use local::LocalStorage;
-pub use webdav::WebDavStorage;
 pub use sync::SyncEngine;
+pub use webdav::WebDavStorage;
 
 /// Represents a file or directory in the storage
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -34,25 +34,19 @@ pub struct MusicLibraryItem {
 pub trait StorageBackend: Send + Sync {
     /// List all items in a directory
     async fn list_directory(&self, path: &Path) -> Result<Vec<StorageItem>>;
-    
+
     /// Check if a path exists
     async fn exists(&self, path: &Path) -> Result<bool>;
-    
+
     /// Create a directory (including parents)
     async fn create_directory(&self, path: &Path) -> Result<()>;
-    
+
     /// Upload/write a file
     async fn write_file(&self, path: &Path, data: &[u8]) -> Result<()>;
-    
-    /// Read a file
-    async fn read_file(&self, path: &Path) -> Result<Vec<u8>>;
-    
-    /// Delete a file (used only for cleanup, not for sync)
-    async fn delete_file(&self, path: &Path) -> Result<()>;
-    
+
     /// Get storage type name for display
     fn storage_type(&self) -> &str;
-    
+
     /// Get the root path/URL
     fn root_path(&self) -> String;
 }
@@ -61,7 +55,7 @@ pub trait StorageBackend: Send + Sync {
 #[derive(Debug, Clone)]
 pub struct SyncOptions {
     pub dry_run: bool,
-    pub parallel_downloads: usize,
+    pub parallel_downloads: usize,  // 0 = disabled, 1-6 = number of workers
     pub skip_cover_art: bool,
     pub audio_format: AudioFormat,
 }

@@ -54,8 +54,10 @@ impl AuthManager {
     ) -> Result<(String, String)> {
         // Parse URL to get host for keyring key
         let parsed = url::Url::parse(url).context("Invalid WebDAV URL")?;
-        let host = parsed.host_str().ok_or_else(|| anyhow::anyhow!("No host in URL"))?;
-        
+        let host = parsed
+            .host_str()
+            .ok_or_else(|| anyhow::anyhow!("No host in URL"))?;
+
         // Check keyring first using just the host
         if let (Ok(stored_user), Ok(stored_pass)) = (
             Self::get_webdav_username(host),
@@ -64,7 +66,7 @@ impl AuthManager {
             info!("Found existing WebDAV credentials in keyring for {}", host);
             return Ok((stored_user, stored_pass));
         }
-        
+
         info!("No stored credentials found for {}", host);
 
         // Get credentials
@@ -87,19 +89,28 @@ impl AuthManager {
 
         // Store in keyring using just the host
         Self::store_webdav_credentials(host, &username, &password)?;
-        info!("WebDAV authentication successful - credentials stored for {}", host);
+        info!(
+            "WebDAV authentication successful - credentials stored for {}",
+            host
+        );
 
         Ok((username, password))
     }
 
-    async fn browser_login(username: Option<String>, password: Option<String>, headless: bool) -> Result<String> {
+    async fn browser_login(
+        username: Option<String>,
+        password: Option<String>,
+        headless: bool,
+    ) -> Result<String> {
         // Set up Chrome capabilities
         let mut caps = DesiredCapabilities::chrome();
         if headless {
             caps.add_arg("--headless")?;
         }
         caps.add_arg("--disable-blink-features=AutomationControlled")?;
-        caps.add_arg("--user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36")?;
+        caps.add_arg(
+            "--user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
+        )?;
 
         // Connect to WebDriver (user needs chromedriver running)
         debug!("Connecting to ChromeDriver on port 9515");
@@ -108,7 +119,8 @@ impl AuthManager {
             .context("Failed to connect to ChromeDriver. Please run: chromedriver --port=9515")?;
 
         // Navigate to Bandcamp login
-        driver.goto("https://bandcamp.com/login")
+        driver
+            .goto("https://bandcamp.com/login")
             .await
             .context("Failed to navigate to login page")?;
 
@@ -116,29 +128,36 @@ impl AuthManager {
         tokio::time::sleep(Duration::from_secs(2)).await;
 
         // Only fill in credentials if provided via flags
-        if let Some(username) = username {
-            if let Ok(username_field) = driver.find(By::Id("username-field")).await {
+        if let Some(username) = username
+            && let Ok(username_field) = driver.find(By::Id("username-field")).await {
                 username_field.send_keys(&username).await?;
                 debug!("Filled in username");
             }
-        }
 
-        if let Some(password) = password {
-            if let Ok(password_field) = driver.find(By::Id("password-field")).await {
+        if let Some(password) = password
+            && let Ok(password_field) = driver.find(By::Id("password-field")).await {
                 password_field.send_keys(&password).await?;
                 debug!("Filled in password");
             }
-        }
 
         // Let user handle login
         println!();
-        println!("{}", "═══════════════════════════════════════════════════════".cyan());
-        println!("{}", "Browser opened to Bandcamp login page.".green().bold());
+        println!(
+            "{}",
+            "═══════════════════════════════════════════════════════".cyan()
+        );
+        println!(
+            "{}",
+            "Browser opened to Bandcamp login page.".green().bold()
+        );
         println!("{}", "Please:".yellow());
         println!("{}", "1. Enter your credentials".yellow());
         println!("{}", "2. Solve the reCAPTCHA if present".yellow());
         println!("{}", "3. Click the 'Log in' button".yellow());
-        println!("{}", "═══════════════════════════════════════════════════════".cyan());
+        println!(
+            "{}",
+            "═══════════════════════════════════════════════════════".cyan()
+        );
         println!();
         println!("{}", "Waiting for login to complete...".blue());
 
@@ -146,36 +165,53 @@ impl AuthManager {
         let mut attempts = 0;
         let max_attempts = 120; // 2 minutes timeout
         
+        // Pre-compile regexes used in the loop
+        let fan_id_regex = regex::Regex::new(r#""fanId":(\d+)"#)?;
+        let app_data_regex = regex::Regex::new(r#"<div[^>]+id="DiscoverApp"[^>]+data-blob="([^"]+)""#)?;
+
         loop {
             tokio::time::sleep(Duration::from_secs(1)).await;
-            
+
             // Check if we have the identity cookie
             let cookies = driver.get_all_cookies().await?;
             if let Some(identity_cookie) = cookies.iter().find(|c| c.name == "identity") {
                 let cookie_value = identity_cookie.value.to_string();
+
+                // Check if we're already on the discover page after login redirect
+                let current_url = driver.current_url().await?;
+                debug!("Current URL after login: {}", current_url);
                 
-                // Now get the fan_id from the discover page
-                driver.goto("https://bandcamp.com/discover").await?;
-                tokio::time::sleep(Duration::from_secs(2)).await;
-                
+                if !current_url.as_str().contains("/discover") {
+                    // Navigate to discover page if we're not already there
+                    debug!("Navigating to /discover page for fan_id extraction");
+                    driver.goto("https://bandcamp.com/discover").await?;
+                    tokio::time::sleep(Duration::from_secs(2)).await;
+                } else {
+                    debug!("Already on /discover page, skipping navigation");
+                    // Just a small delay to ensure page is fully loaded
+                    tokio::time::sleep(Duration::from_millis(500)).await;
+                }
+
                 // Get page source to extract fan_id
                 let page_source = driver.source().await?;
-                
+
                 // Extract fan_id from the page
-                let fan_id = if let Some(captures) = regex::Regex::new(r#""fanId":(\d+)"#)?.captures(&page_source) {
+                let fan_id = if let Some(captures) = fan_id_regex.captures(&page_source)
+                {
                     captures.get(1).map(|m| m.as_str().to_string())
                 } else {
                     None
                 };
-                
+
                 if fan_id.is_none() {
                     // Try to get it from the DiscoverApp data
                     debug!("Trying to extract fan_id from DiscoverApp data");
-                    let app_data_regex = regex::Regex::new(r#"<div[^>]+id="DiscoverApp"[^>]+data-blob="([^"]+)""#)?;
                     let fan_id = if let Some(captures) = app_data_regex.captures(&page_source) {
                         if let Some(data_blob) = captures.get(1) {
                             let decoded = html_escape::decode_html_entities(data_blob.as_str());
-                            if let Some(fan_captures) = regex::Regex::new(r#""fanId":(\d+)"#)?.captures(&decoded) {
+                            // Reuse the same regex from above
+                            if let Some(fan_captures) = fan_id_regex.captures(&decoded)
+                            {
                                 fan_captures.get(1).map(|m| m.as_str().to_string())
                             } else {
                                 None
@@ -186,13 +222,15 @@ impl AuthManager {
                     } else {
                         None
                     };
-                    
+
                     // Close browser and fail if still no fan_id
                     if fan_id.is_none() {
                         driver.quit().await?;
-                        anyhow::bail!("Failed to extract fan_id from page after login. The page structure may have changed.");
+                        anyhow::bail!(
+                            "Failed to extract fan_id from page after login. The page structure may have changed."
+                        );
                     }
-                    
+
                     println!("{}", "✓ Login successful!".green().bold());
                     debug!("Successfully extracted cookie and fan_id: {:?}", fan_id);
                     // Store both cookie and fan_id together
@@ -200,20 +238,23 @@ impl AuthManager {
                 } else {
                     // Close browser
                     driver.quit().await?;
-                    
+
                     println!("{}", "✓ Login successful!".green().bold());
-                    debug!("Successfully extracted cookie and fan_id: {}", fan_id.as_ref().unwrap());
+                    debug!(
+                        "Successfully extracted cookie and fan_id: {}",
+                        fan_id.as_ref().unwrap()
+                    );
                     // Store both cookie and fan_id together
                     return Ok(format!("{}:{}", cookie_value, fan_id.unwrap()));
                 }
             }
-            
+
             attempts += 1;
             if attempts >= max_attempts {
                 driver.quit().await?;
                 anyhow::bail!("Login timeout - no identity cookie found after 2 minutes");
             }
-            
+
             // Show progress
             if attempts % 10 == 0 {
                 debug!("Still waiting for login... ({}/{})", attempts, max_attempts);
@@ -244,26 +285,31 @@ impl AuthManager {
     // Keyring helpers
     pub fn get_bandcamp_cookie() -> Result<String> {
         let entry = Entry::new(KEYRING_SERVICE, "bandcamp:cookie")?;
-        let stored = entry.get_password().context("No Bandcamp cookie in keyring")?;
-        
+        let stored = entry
+            .get_password()
+            .context("No Bandcamp cookie in keyring")?;
+
         // Parse stored format: "timestamp:cookie" or "timestamp:cookie:fan_id"
         let parts: Vec<&str> = stored.splitn(3, ':').collect();
-        
-        if parts.len() >= 2 {
-            if let Ok(timestamp) = parts[0].parse::<i64>() {
+
+        if parts.len() >= 2
+            && let Ok(timestamp) = parts[0].parse::<i64>() {
                 let now = chrono::Utc::now().timestamp();
                 let age_seconds = now - timestamp;
-                
+
                 // Expire after 10 minutes (600 seconds)
                 if age_seconds > 600 {
-                    debug!("Cookie expired (age: {}s), need to re-authenticate", age_seconds);
+                    debug!(
+                        "Cookie expired (age: {}s), need to re-authenticate",
+                        age_seconds
+                    );
                     // Delete expired cookie
                     let _ = entry.delete_credential();
                     anyhow::bail!("Cookie expired, please re-authenticate");
                 }
-                
+
                 debug!("Cookie is still valid (age: {}s)", age_seconds);
-                
+
                 // Return cookie:fan_id if we have fan_id, otherwise just cookie
                 if parts.len() == 3 {
                     return Ok(format!("{}:{}", parts[1], parts[2])); // cookie:fan_id
@@ -271,8 +317,7 @@ impl AuthManager {
                     return Ok(parts[1].to_string()); // just cookie
                 }
             }
-        }
-        
+
         // Invalid format, treat as expired
         let _ = entry.delete_credential();
         anyhow::bail!("Cookie format invalid, please re-authenticate")
@@ -284,7 +329,9 @@ impl AuthManager {
         // Format: timestamp:cookie:fan_id (if fan_id is included in cookie)
         let timestamp = chrono::Utc::now().timestamp();
         let stored_value = format!("{}:{}", timestamp, cookie);
-        entry.set_password(&stored_value).context("Failed to store cookie in keyring")?;
+        entry
+            .set_password(&stored_value)
+            .context("Failed to store cookie in keyring")?;
         debug!("Cookie stored in keyring with 10 minute expiry");
         Ok(())
     }
@@ -292,13 +339,17 @@ impl AuthManager {
     fn get_webdav_username(url: &str) -> Result<String> {
         let key = format!("webdav:{}:username", url);
         let entry = Entry::new(KEYRING_SERVICE, &key)?;
-        entry.get_password().context("No WebDAV username in keyring")
+        entry
+            .get_password()
+            .context("No WebDAV username in keyring")
     }
 
     fn get_webdav_password(url: &str) -> Result<String> {
         let key = format!("webdav:{}:password", url);
         let entry = Entry::new(KEYRING_SERVICE, &key)?;
-        entry.get_password().context("No WebDAV password in keyring")
+        entry
+            .get_password()
+            .context("No WebDAV password in keyring")
     }
 
     fn store_webdav_credentials(url: &str, username: &str, password: &str) -> Result<()> {

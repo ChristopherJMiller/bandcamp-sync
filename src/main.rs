@@ -1,11 +1,10 @@
-mod cli;
 mod bandcamp;
+mod cli;
 mod storage;
-mod utils;
 
 use anyhow::Result;
 use clap::Parser;
-use tracing_subscriber::{fmt, prelude::*, EnvFilter};
+use tracing_subscriber::{EnvFilter, fmt, prelude::*};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -22,7 +21,7 @@ async fn main() -> Result<()> {
                     .with_thread_names(false)
                     .with_file(false)
                     .with_line_number(false)
-                    .with_level(true)
+                    .with_level(true),
             )
             .with(EnvFilter::new("debug"))
             .init();
@@ -37,7 +36,7 @@ async fn main() -> Result<()> {
                     .with_file(false)
                     .with_line_number(false)
                     .with_level(false)
-                    .without_time()
+                    .without_time(),
             )
             .with(EnvFilter::new("warn"))
             .init();

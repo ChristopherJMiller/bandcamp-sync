@@ -1,10 +1,9 @@
-pub mod commands;
 pub mod auth;
+pub mod commands;
 pub mod completions;
 
 use clap::{Parser, Subcommand, ValueEnum};
 use clap_complete::Shell;
-use std::path::PathBuf;
 
 #[derive(Parser, Debug)]
 #[command(
@@ -32,9 +31,13 @@ pub enum Commands {
 
     /// List Bandcamp collection
     List {
-        /// Filter by artist name
-        #[arg(long)]
+        /// Filter by artist name (include only matching artists)
+        #[arg(long, conflicts_with = "exclude_artist")]
         artist_filter: Option<String>,
+        
+        /// Exclude artists matching this pattern
+        #[arg(long, conflicts_with = "artist_filter")]
+        exclude_artist: Option<String>,
 
         /// Filter by album name
         #[arg(long)]
@@ -73,6 +76,14 @@ pub enum Commands {
         /// Show only missing albums
         #[arg(long)]
         missing_only: bool,
+        
+        /// Filter by artist name (include only matching artists)
+        #[arg(long, conflicts_with = "exclude_artist")]
+        artist_filter: Option<String>,
+        
+        /// Exclude artists matching this pattern
+        #[arg(long, conflicts_with = "artist_filter")]
+        exclude_artist: Option<String>,
     },
 
     /// Sync missing albums from Bandcamp to destination
@@ -93,17 +104,25 @@ pub enum Commands {
         #[arg(short, long, default_value = "aac")]
         format: AudioFormat,
 
-        /// Number of parallel downloads
-        #[arg(short, long, default_value = "3")]
+        /// Number of parallel downloads (0 = auto, max 6)
+        #[arg(short, long, default_value = "0")]
         parallel: usize,
+
+        /// Disable parallel downloads (sequential mode)
+        #[arg(long, conflicts_with = "parallel")]
+        no_parallel: bool,
 
         /// Skip album cover art
         #[arg(long)]
         no_cover: bool,
 
-        /// Filter by artist name
-        #[arg(long)]
+        /// Filter by artist name (include only matching artists)
+        #[arg(long, conflicts_with = "exclude_artist")]
         artist_filter: Option<String>,
+        
+        /// Exclude artists matching this pattern
+        #[arg(long, conflicts_with = "artist_filter")]
+        exclude_artist: Option<String>,
 
         /// Filter by album name
         #[arg(long)]
@@ -175,4 +194,3 @@ pub enum OutputFormat {
     Json,
     Csv,
 }
-
