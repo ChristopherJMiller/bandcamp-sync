@@ -55,6 +55,7 @@
             nativeBuildInputs = with pkgs; [
               rustToolchain
               pkg-config
+              installShellFiles
             ];
 
             # Runtime dependencies
@@ -71,14 +72,11 @@
 
             # Post-install setup
             postInstall = ''
-              # Install shell completions
-              mkdir -p $out/share/bash-completion/completions
-              mkdir -p $out/share/zsh/site-functions
-              mkdir -p $out/share/fish/vendor_completions.d
-
-              $out/bin/bandcamp-sync completion bash > $out/share/bash-completion/completions/bandcamp-sync
-              $out/bin/bandcamp-sync completion zsh > $out/share/zsh/site-functions/_bandcamp-sync
-              $out/bin/bandcamp-sync completion fish > $out/share/fish/vendor_completions.d/bandcamp-sync.fish
+              # Generate and install shell completions
+              installShellCompletion --cmd bandcamp-sync \
+                --bash <($out/bin/bandcamp-sync completion bash) \
+                --fish <($out/bin/bandcamp-sync completion fish) \
+                --zsh <($out/bin/bandcamp-sync completion zsh)
             '';
 
             meta = with pkgs.lib; {
