@@ -17,6 +17,7 @@ use super::{
     AlbumToDownload, ConflictInfo, DryRunResult, MusicLibraryItem, StorageBackend, SyncOptions,
 };
 use crate::bandcamp::{DownloadManager, models::CollectionItem};
+use crate::utils::sanitize_filename;
 
 /// Synchronization engine for managing music collection updates
 pub struct SyncEngine {
@@ -134,10 +135,10 @@ impl SyncEngine {
         let missing: Vec<CollectionItem> = bandcamp
             .iter()
             .filter(|item| {
-                let key = (
-                    item.band_name.to_lowercase(),
-                    item.item_title.to_lowercase(),
-                );
+                // Sanitize the Bandcamp names the same way we sanitize for filesystem
+                let sanitized_artist = sanitize_filename(&item.band_name).to_lowercase();
+                let sanitized_album = sanitize_filename(&item.item_title).to_lowercase();
+                let key = (sanitized_artist, sanitized_album);
                 !library_set.contains(&key)
             })
             .cloned()
@@ -611,16 +612,3 @@ impl SyncEngine {
     }
 }
 
-/// Sanitize a filename for safe filesystem usage
-fn sanitize_filename(name: &str) -> String {
-    // Replace problematic characters
-    name.chars()
-        .map(|c| match c {
-            '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|' => '_',
-            '\0' => '_',
-            _ => c,
-        })
-        .collect::<String>()
-        .trim()
-        .to_string()
-}

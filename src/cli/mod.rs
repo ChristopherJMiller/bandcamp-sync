@@ -9,6 +9,7 @@ pub mod driver;
 
 use clap::{Parser, Subcommand, ValueEnum};
 use clap_complete::Shell;
+use std::path::PathBuf;
 
 #[derive(Parser, Debug)]
 #[command(
@@ -138,6 +139,21 @@ pub enum Commands {
     Completion {
         /// Shell to generate completions for
         shell: Shell,
+    },
+
+    /// Import a downloaded Bandcamp zip file
+    ImportZip {
+        /// Path to the zip file to import
+        #[arg(value_name = "ZIP_FILE")]
+        zip_path: PathBuf,
+        
+        /// WebDAV URL (mutually exclusive with --local-path)
+        #[arg(long, env = "WEBDAV_URL", conflicts_with = "local_path")]
+        webdav_url: Option<String>,
+
+        /// Local folder path (mutually exclusive with --webdav-url)
+        #[arg(long, env = "LOCAL_PATH", conflicts_with = "webdav_url")]
+        local_path: Option<String>,
     },
 
     /// Check authentication status (debug)

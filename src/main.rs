@@ -7,6 +7,7 @@
 mod bandcamp;
 mod cli;
 mod storage;
+mod utils;
 
 use anyhow::Result;
 use clap::Parser;

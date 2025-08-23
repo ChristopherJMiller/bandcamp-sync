@@ -286,6 +286,7 @@ dependencies = [
  "indicatif",
  "keyring",
  "num_cpus",
+ "rand 0.8.5",
  "regex",
  "reqwest",
  "reqwest_dav",

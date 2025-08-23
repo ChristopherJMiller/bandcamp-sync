@@ -6,6 +6,8 @@ use serde::{Deserialize, Serialize};
 use std::path::Path;
 use tracing::{debug, info, warn};
 
+use crate::utils::sanitize_filename;
+
 /// Album metadata from Bandcamp pages
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TralbumData {
@@ -50,6 +52,7 @@ impl DownloadManager {
 
         Self { client, cookie }
     }
+    
 
     /// Download tracks directly from album page (like bandcamp-dl does)
     pub async fn download_tracks_from_album_page(
@@ -153,12 +156,3 @@ impl DownloadManager {
     }
 }
 
-/// Sanitize filename for safe filesystem usage
-fn sanitize_filename(name: &str) -> String {
-    name.chars()
-        .map(|c| match c {
-            '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|' => '_',
-            _ => c,
-        })
-        .collect()
-}
