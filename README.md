@@ -1,4 +1,4 @@
-<code>
+```
  ______                  _
 (____  \                | |
  ____)  )_____ ____   __| | ____ _____ ____  ____
@@ -13,7 +13,7 @@
  _____) ) |_| | | | ( (___
 (______/ \__  |_| |_|\____)
         (____/
-</code>
+```
 
 A CLI tool to sync your Bandcamp music collection to WebDAV storage or local folders.
 
@@ -46,16 +46,19 @@ cargo build --release
 ### 1. Start WebDriver
 
 #### Firefox (default):
+
 ```bash
 geckodriver --port=4444
 ```
 
 #### Chrome:
+
 ```bash
 chromedriver --port=9515
 ```
 
 #### Safari (macOS):
+
 ```bash
 safaridriver --port=4444
 ```
@@ -261,16 +264,19 @@ You can set these environment variables to avoid passing flags:
 If you get "Failed to connect to WebDriver":
 
 #### Firefox (geckodriver) - Default
+
 1. Install: `brew install geckodriver` (macOS) or download from [GitHub](https://github.com/mozilla/geckodriver/releases)
 2. Start it: `geckodriver --port=4444`
 3. Check it's running: `curl http://localhost:4444/status`
 
 #### Chrome (chromedriver)
+
 1. Install: `brew install chromedriver` (macOS) or download from [ChromeDriver website](https://chromedriver.chromium.org/)
 2. Start it: `chromedriver --port=9515`
 3. Check it's running: `curl http://localhost:9515/status`
 
 #### Safari (safaridriver) - macOS only
+
 1. Enable: `safaridriver --enable` (one-time setup)
 2. Start it: `safaridriver --port=4444`
 3. Note: Safari may require allowing remote automation in Safari's Develop menu
