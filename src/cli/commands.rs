@@ -234,6 +234,9 @@ impl CommandHandler {
                     println!("{}", "─".repeat(80).bright_black());
 
                     for item in &collection {
+                        // Print URL for debugging
+                        debug!("Album URL: {}", item.item_url);
+                        
                         let artist = if item.band_name.chars().count() > 38 {
                             let truncated: String = item.band_name.chars().take(35).collect();
                             format!("{}...", truncated)

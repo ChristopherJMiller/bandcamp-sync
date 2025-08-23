@@ -80,3 +80,9 @@ url = "2.5"
 futures = "0.3"
 async-trait = "0.1"
 urlencoding = "2.1"
+
+# Image processing
+image = "0.25"
+
+# Audio metadata tagging
+lofty = "0.21"

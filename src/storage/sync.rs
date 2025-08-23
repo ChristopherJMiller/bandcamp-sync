@@ -98,7 +98,7 @@ impl SyncEngine {
                     item.path
                         .file_name()
                         .and_then(|n| n.to_str())
-                        .map(|n| n == "cover.jpg" || n == "cover.png")
+                        .map(|n| n == "folder.jpg" || n == "folder.png")
                         .unwrap_or(false)
                 });
 
@@ -215,7 +215,7 @@ impl SyncEngine {
             }
 
             if has_cover_art {
-                result.files_to_write.push(album_path.join("cover.jpg"));
+                result.files_to_write.push(album_path.join("folder.jpg"));
             }
         }
 
@@ -377,6 +377,21 @@ impl SyncEngine {
         cookie: &str,
         temp_dir: &TempDir,
     ) -> Result<()> {
+        // Pre-create all required artist directories to ensure consistency
+        let mut artist_dirs = HashSet::new();
+        for item in missing_items {
+            let artist = sanitize_filename(&item.band_name);
+            artist_dirs.insert(artist);
+        }
+        
+        for artist in &artist_dirs {
+            let artist_path = PathBuf::from(artist);
+            if let Err(e) = self.storage.create_directory(&artist_path).await {
+                // It's okay if the directory already exists
+                debug!("Note while creating artist directory {}: {}", artist, e);
+            }
+        }
+
         let download_manager = DownloadManager::new(cookie.to_string());
 
         // Create progress bar
@@ -436,6 +451,23 @@ impl SyncEngine {
         cookie: &str,
         temp_dir: Arc<TempDir>,
     ) -> Result<()> {
+        // Pre-create all required artist directories sequentially to avoid race conditions
+        println!("Creating artist directories...");
+        let mut artist_dirs = std::collections::HashSet::new();
+        for item in missing_items {
+            let artist = sanitize_filename(&item.band_name);
+            artist_dirs.insert(artist);
+        }
+        
+        for artist in &artist_dirs {
+            let artist_path = PathBuf::from(artist);
+            if let Err(e) = self.storage.create_directory(&artist_path).await {
+                // It's okay if the directory already exists
+                debug!("Note while creating artist directory {}: {}", artist, e);
+            }
+        }
+        println!("Created {} artist directories", artist_dirs.len());
+
         // Create semaphore to limit concurrent downloads
         let semaphore = Arc::new(Semaphore::new(self.options.parallel_downloads));
 
@@ -587,6 +619,7 @@ impl SyncEngine {
             .await?;
 
         // Upload downloaded files to storage
+        info!("Uploading {} files for album: {}/{}", downloaded_files.len(), artist, album);
         for file_name in downloaded_files {
             let source_path = temp_album_dir.join(&file_name);
             let dest_path = album_path.join(&file_name);
@@ -595,7 +628,11 @@ impl SyncEngine {
             let data = tokio::fs::read(&source_path).await?;
             storage.write_file(&dest_path, &data).await?;
 
-            debug!("Uploaded: {}", dest_path.display());
+            if file_name == "folder.jpg" {
+                info!("Uploaded album cover: {}", dest_path.display());
+            } else {
+                debug!("Uploaded track: {}", dest_path.display());
+            }
         }
 
         Ok(())
