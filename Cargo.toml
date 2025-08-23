@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 authors = ["Chris M <hello@chrismiller.xyz>"]
 description = "Sync your Bandcamp collection to local and remote destinations"
+license = "GPL-3.0"
 
 # Optimization settings for release builds
 [profile.release]
