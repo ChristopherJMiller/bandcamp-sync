@@ -103,34 +103,40 @@ impl DownloadManager {
             // Bandcamp stores art_id, not art_url - we need to construct the URL
             let art_url = if let Some(art_id) = data.get("art_id").and_then(|v| v.as_i64()) {
                 // Use size 10 for good quality (roughly 1200x1200)
-                Some(format!("https://f4.bcbits.com/img/a{:010}_{}.jpg", art_id, 10))
-            } else if let Some(art_id) = data.get("current")
+                Some(format!(
+                    "https://f4.bcbits.com/img/a{:010}_{}.jpg",
+                    art_id, 10
+                ))
+            } else if let Some(art_id) = data
+                .get("current")
                 .and_then(|c| c.get("art_id"))
-                .and_then(|v| v.as_i64()) {
+                .and_then(|v| v.as_i64())
+            {
                 // Sometimes art_id is in the current object
-                Some(format!("https://f4.bcbits.com/img/a{:010}_{}.jpg", art_id, 10))
+                Some(format!(
+                    "https://f4.bcbits.com/img/a{:010}_{}.jpg",
+                    art_id, 10
+                ))
             } else {
                 // Fallback: check if there's a direct art_url field (rare)
-                data.get("art_url")
-                    .and_then(|v| v.as_str())
-                    .map(|url| {
-                        if url.starts_with("http") {
-                            url.to_string()
-                        } else {
-                            format!("https:{}", url)
-                        }
-                    })
+                data.get("art_url").and_then(|v| v.as_str()).map(|url| {
+                    if url.starts_with("http") {
+                        url.to_string()
+                    } else {
+                        format!("https:{}", url)
+                    }
+                })
             };
 
             if let Some(art_url) = art_url {
                 info!("Downloading album art from: {}", art_url);
                 let cover_path = output_dir.join("folder.jpg");
-                
+
                 match self.client.get(&art_url).send().await {
                     Ok(art_response) => {
                         if art_response.status().is_success() {
                             let bytes = art_response.bytes().await?;
-                            
+
                             // Load the image and convert to JPEG if needed
                             match image::load_from_memory(&bytes) {
                                 Ok(img) => {
@@ -143,14 +149,20 @@ impl DownloadManager {
                                 Err(e) => {
                                     // If image processing fails, try saving raw bytes
                                     // (in case it's already a valid JPEG)
-                                    warn!("Could not process image with image crate, saving raw: {}", e);
+                                    warn!(
+                                        "Could not process image with image crate, saving raw: {}",
+                                        e
+                                    );
                                     std::fs::write(&cover_path, bytes)?;
                                     info!("Saved raw image data as folder.jpg");
                                     downloaded_files.push("folder.jpg".to_string());
                                 }
                             }
                         } else {
-                            warn!("Failed to download album art, HTTP status: {}", art_response.status());
+                            warn!(
+                                "Failed to download album art, HTTP status: {}",
+                                art_response.status()
+                            );
                         }
                     }
                     Err(e) => {
@@ -170,7 +182,8 @@ impl DownloadManager {
             if let Some(trackinfo) = data.get("trackinfo").and_then(|v| v.as_array()) {
                 for (index, track) in trackinfo.iter().enumerate() {
                     let track_num = index + 1;
-                    let title = track.get("title")
+                    let title = track
+                        .get("title")
                         .and_then(|v| v.as_str())
                         .unwrap_or("Unknown");
 
@@ -197,7 +210,7 @@ impl DownloadManager {
                         if track_response.status().is_success() {
                             let bytes = track_response.bytes().await?;
                             std::fs::write(&track_path, &bytes)?;
-                            
+
                             // Tag the MP3 file with metadata
                             if let Err(e) = self.tag_audio_file(
                                 &track_path,
@@ -208,7 +221,7 @@ impl DownloadManager {
                             ) {
                                 warn!("Failed to tag audio file: {}", e);
                             }
-                            
+
                             downloaded_files.push(filename);
                         } else {
                             warn!("Failed to download track: {}", title);
@@ -243,7 +256,8 @@ impl DownloadManager {
             None => {
                 // Create a new ID3v2 tag for MP3 files
                 tagged_file.insert_tag(Tag::new(TagType::Id3v2));
-                tagged_file.primary_tag_mut()
+                tagged_file
+                    .primary_tag_mut()
                     .ok_or_else(|| anyhow::anyhow!("Failed to create tag"))?
             }
         };
@@ -252,21 +266,27 @@ impl DownloadManager {
         tag.clear();
 
         // Extract metadata from the album data (safe access to avoid panics)
-        let artist = album_data.get("artist")
+        let artist = album_data
+            .get("artist")
             .and_then(|v| v.as_str())
             .or_else(|| album_data.get("albumArtist").and_then(|v| v.as_str()))
             .unwrap_or("Unknown Artist");
-        
-        let album = album_data.get("current")
+
+        let album = album_data
+            .get("current")
             .and_then(|c| c.get("title"))
             .and_then(|v| v.as_str())
             .or_else(|| album_data.get("album_title").and_then(|v| v.as_str()))
-            .or_else(|| album_data.get("current")
-                .and_then(|c| c.get("album_title"))
-                .and_then(|v| v.as_str()))
+            .or_else(|| {
+                album_data
+                    .get("current")
+                    .and_then(|c| c.get("album_title"))
+                    .and_then(|v| v.as_str())
+            })
             .unwrap_or("Unknown Album");
 
-        let track_title = track_data.get("title")
+        let track_title = track_data
+            .get("title")
             .and_then(|v| v.as_str())
             .unwrap_or("Unknown Track");
 
@@ -279,33 +299,36 @@ impl DownloadManager {
         // We'll add it as a custom TagItem for formats that support it
         tag.insert(TagItem::new(
             ItemKey::TrackTotal,
-            ItemValue::Text(total_tracks.to_string())
+            ItemValue::Text(total_tracks.to_string()),
         ));
 
         // Set album artist (important for compilation albums)
         tag.insert(TagItem::new(
             ItemKey::AlbumArtist,
-            ItemValue::Text(String::from(artist))
+            ItemValue::Text(String::from(artist)),
         ));
 
         // Extract and set year if available
-        if let Some(release_date) = album_data.get("album_release_date")
-            .and_then(|v| v.as_str()) {
+        if let Some(release_date) = album_data
+            .get("album_release_date")
+            .and_then(|v| v.as_str())
+        {
             // Try to parse year from date string
-            if let Some(year) = release_date.split('-').next() {
-                if let Ok(year_num) = year.parse::<u32>() {
-                    tag.set_year(year_num);
-                }
+            if let Some(year) = release_date.split('-').next()
+                && let Ok(year_num) = year.parse::<u32>()
+            {
+                tag.set_year(year_num);
             }
-        } else if let Some(year) = album_data.get("current")
+        } else if let Some(year) = album_data
+            .get("current")
             .and_then(|c| c.get("release_date"))
-            .and_then(|v| v.as_i64()) {
+            .and_then(|v| v.as_i64())
+        {
             tag.set_year(year as u32);
         }
 
         // Extract and set genre/tags if available
-        if let Some(tags) = album_data.get("tags")
-            .and_then(|v| v.as_array()) {
+        if let Some(tags) = album_data.get("tags").and_then(|v| v.as_array()) {
             let genres: Vec<String> = tags
                 .iter()
                 .filter_map(|t| {
@@ -315,32 +338,32 @@ impl DownloadManager {
                         .or_else(|| t.get("name").and_then(|n| n.as_str()).map(String::from))
                 })
                 .collect();
-            
+
             if !genres.is_empty() {
                 // For gonic multi-value support, join with semicolon
                 let genre_string = genres.join(";");
                 tag.set_genre(genre_string);
             }
-        } else if let Some(genre) = album_data.get("genre")
-            .and_then(|v| v.as_str()) {
+        } else if let Some(genre) = album_data.get("genre").and_then(|v| v.as_str()) {
             tag.set_genre(String::from(genre));
         }
 
         // Add comment with Bandcamp URL if available
-        if let Some(url) = album_data.get("url")
-            .and_then(|v| v.as_str()) {
+        if let Some(url) = album_data.get("url").and_then(|v| v.as_str()) {
             tag.set_comment(format!("Bandcamp: {}", url));
-        } else if let Some(url) = album_data.get("current")
+        } else if let Some(url) = album_data
+            .get("current")
             .and_then(|c| c.get("url"))
-            .and_then(|v| v.as_str()) {
+            .and_then(|v| v.as_str())
+        {
             tag.set_comment(format!("Bandcamp: {}", url));
         }
 
         // Save the tags to the file
         tag.save_to_path(file_path, WriteOptions::default())?;
-        
+
         debug!("Tagged {} - {} - {}", artist, album, track_title);
-        
+
         Ok(())
     }
 }

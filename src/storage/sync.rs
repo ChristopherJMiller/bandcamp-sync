@@ -383,7 +383,7 @@ impl SyncEngine {
             let artist = sanitize_filename(&item.band_name);
             artist_dirs.insert(artist);
         }
-        
+
         for artist in &artist_dirs {
             let artist_path = PathBuf::from(artist);
             if let Err(e) = self.storage.create_directory(&artist_path).await {
@@ -458,7 +458,7 @@ impl SyncEngine {
             let artist = sanitize_filename(&item.band_name);
             artist_dirs.insert(artist);
         }
-        
+
         for artist in &artist_dirs {
             let artist_path = PathBuf::from(artist);
             if let Err(e) = self.storage.create_directory(&artist_path).await {
@@ -619,7 +619,12 @@ impl SyncEngine {
             .await?;
 
         // Upload downloaded files to storage
-        info!("Uploading {} files for album: {}/{}", downloaded_files.len(), artist, album);
+        info!(
+            "Uploading {} files for album: {}/{}",
+            downloaded_files.len(),
+            artist,
+            album
+        );
         for file_name in downloaded_files {
             let source_path = temp_album_dir.join(&file_name);
             let dest_path = album_path.join(&file_name);
