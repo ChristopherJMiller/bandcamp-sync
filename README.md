@@ -142,6 +142,18 @@ bandcamp-sync sync --local-path ~/Music --parallel 1337
 bandcamp-sync sync --local-path ~/Music --no-cover
 ```
 
+### Manual Import
+
+For albums that fail to download automatically (e.g., hidden from artist's public page):
+
+```bash
+# Import a manually downloaded Bandcamp zip
+bandcamp-sync import-zip ~/Downloads/album.zip --webdav-url https://dav.example.com
+
+# Or to local storage
+bandcamp-sync import-zip ~/Downloads/album.zip --local-path ~/Music
+```
+
 ## Command Reference
 
 ### Global Options
