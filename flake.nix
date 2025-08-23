@@ -63,13 +63,10 @@
               dbus
             ];
 
-            # Build optimizations
+            # Build configuration
             env = {
-              # Link against system OpenSSL
+              # Link against system OpenSSL instead of vendoring
               OPENSSL_NO_VENDOR = "1";
-              # Enable optimizations
-              CARGO_PROFILE_RELEASE_LTO = "true";
-              CARGO_PROFILE_RELEASE_CODEGEN_UNITS = "1";
             };
 
             # Post-install setup
@@ -87,8 +84,8 @@
             meta = with pkgs.lib; {
               description = "Sync Bandcamp purchases to WebDAV music library";
               homepage = "https://github.com/chris-miller/bandcamp-sync";
-              license = licenses.mit;
-              maintainers = [ ]; # Remove non-existent maintainer
+              license = licenses.gpl3;
+              maintainers = [ ];
               platforms = platforms.unix;
 
               longDescription = ''

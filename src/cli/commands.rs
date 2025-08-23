@@ -56,7 +56,16 @@ impl CommandHandler {
                 missing_only,
                 artist_filter,
                 exclude_artist,
-            } => Self::handle_diff(webdav_url, local_path, missing_only, artist_filter, exclude_artist).await,
+            } => {
+                Self::handle_diff(
+                    webdav_url,
+                    local_path,
+                    missing_only,
+                    artist_filter,
+                    exclude_artist,
+                )
+                .await
+            }
             Commands::Sync {
                 webdav_url,
                 local_path,
@@ -107,9 +116,16 @@ impl CommandHandler {
                 force,
             } => {
                 println!("{}", "Authenticating with Bandcamp...".blue());
-                let _cookie =
-                    AuthManager::authenticate_bandcamp(headless, driver, driver_port, username, password, cookie, force)
-                        .await?;
+                let _cookie = AuthManager::authenticate_bandcamp(
+                    headless,
+                    driver,
+                    driver_port,
+                    username,
+                    password,
+                    cookie,
+                    force,
+                )
+                .await?;
                 println!("{}", "✓ Bandcamp authentication successful".green());
             }
             AuthService::Webdav {
@@ -272,7 +288,7 @@ impl CommandHandler {
             storage,
             SyncOptions {
                 dry_run: false,
-                parallel_downloads: 0,  // Not needed for scan
+                parallel_downloads: 0, // Not needed for scan
                 skip_cover_art: false,
                 audio_format: crate::storage::AudioFormat::Aac,
             },
@@ -344,7 +360,7 @@ impl CommandHandler {
             storage,
             SyncOptions {
                 dry_run: false,
-                parallel_downloads: 0,  // Not needed for scan
+                parallel_downloads: 0, // Not needed for scan
                 skip_cover_art: false,
                 audio_format: crate::storage::AudioFormat::Aac,
             },
@@ -393,7 +409,8 @@ impl CommandHandler {
     }
 
     async fn handle_sync(options: SyncCommandOptions) -> Result<()> {
-        let storage = Self::get_storage(options.storage.webdav_url, options.storage.local_path).await?;
+        let storage =
+            Self::get_storage(options.storage.webdav_url, options.storage.local_path).await?;
 
         // Convert AudioFormat
         let storage_format = match options.format {
@@ -443,15 +460,15 @@ impl CommandHandler {
 
         // Calculate parallel downloads
         let parallel_downloads = if options.no_parallel {
-            0  // Disabled
+            0 // Disabled
         } else if options.parallel > 0 {
-            options.parallel.min(6)  // User specified, cap at 6
+            options.parallel.min(6) // User specified, cap at 6
         } else {
             // Auto: use number of CPU cores, capped at 6
             let cpu_count = num_cpus::get();
             cpu_count.clamp(1, 6)
         };
-        
+
         if !options.dry_run && parallel_downloads > 0 {
             debug!("Using {} parallel download workers", parallel_downloads);
         }

@@ -1,3 +1,8 @@
+//! Authentication management for Bandcamp and WebDAV services
+//!
+//! Handles browser-based authentication for Bandcamp using WebDriver,
+//! and credential storage using the system keyring.
+
 use anyhow::{Context, Result};
 use colored::Colorize;
 use dialoguer::{Input, Password};
@@ -7,12 +12,17 @@ use thirtyfour::prelude::*;
 use tracing::{debug, info};
 
 use super::BrowserDriver;
+use super::driver::DriverManager;
 
 const KEYRING_SERVICE: &str = "bandcamp-sync";
 
+/// Manages authentication for various services
 pub struct AuthManager;
 
 impl AuthManager {
+    /// Authenticates with Bandcamp using browser automation or stored credentials
+    ///
+    /// Returns a cookie string that can be used for API requests
     pub async fn authenticate_bandcamp(
         headless: bool,
         driver: BrowserDriver,
@@ -22,14 +32,12 @@ impl AuthManager {
         cookie: Option<String>,
         force: bool,
     ) -> Result<String> {
-        // If cookie is provided directly, use it
         if let Some(cookie) = cookie {
             debug!("Using provided Bandcamp cookie");
             Self::store_bandcamp_cookie(&cookie)?;
             return Ok(cookie);
         }
 
-        // Check keyring for existing cookie (unless forced)
         if !force {
             if let Ok(stored_cookie) = Self::get_bandcamp_cookie() {
                 debug!("Found existing Bandcamp authentication in keyring");
@@ -39,11 +47,9 @@ impl AuthManager {
             debug!("Force flag set, skipping keyring check");
         }
 
-        // Launch browser for login
         debug!("Launching browser for Bandcamp login...");
         let cookie = Self::browser_login(driver, driver_port, username, password, headless).await?;
 
-        // Store in keyring
         debug!("Storing cookie in keyring...");
         Self::store_bandcamp_cookie(&cookie)?;
         debug!("Bandcamp authentication successful - cookie saved");
@@ -108,13 +114,13 @@ impl AuthManager {
         password: Option<String>,
         headless: bool,
     ) -> Result<String> {
-        // Get the port to use
-        let port = driver_port.unwrap_or_else(|| browser.default_port());
-        
-        // Connect to WebDriver - create driver differently based on browser type
-        let url = format!("http://localhost:{}", port);
-        debug!("Connecting to {} on port {}", browser.driver_name(), port);
-        
+        let mut driver_manager = DriverManager::new(browser, driver_port);
+        driver_manager.ensure_running().await?;
+
+        // Get the URL from the driver manager
+        let url = driver_manager.url();
+        debug!("Connecting to {} at {}", browser.driver_name(), url);
+
         let driver = match browser {
             BrowserDriver::Chrome => {
                 let mut caps = DesiredCapabilities::chrome();
@@ -140,10 +146,8 @@ impl AuthManager {
             }
         }
         .with_context(|| format!(
-            "Failed to connect to {}. Please run: {} --port={}",
-            browser.driver_name(),
-            browser.driver_name(),
-            port
+            "Failed to connect to WebDriver at {}",
+            url
         ))?;
 
         // Navigate to Bandcamp login
@@ -157,16 +161,18 @@ impl AuthManager {
 
         // Only fill in credentials if provided via flags
         if let Some(username) = username
-            && let Ok(username_field) = driver.find(By::Id("username-field")).await {
-                username_field.send_keys(&username).await?;
-                debug!("Filled in username");
-            }
+            && let Ok(username_field) = driver.find(By::Id("username-field")).await
+        {
+            username_field.send_keys(&username).await?;
+            debug!("Filled in username");
+        }
 
         if let Some(password) = password
-            && let Ok(password_field) = driver.find(By::Id("password-field")).await {
-                password_field.send_keys(&password).await?;
-                debug!("Filled in password");
-            }
+            && let Ok(password_field) = driver.find(By::Id("password-field")).await
+        {
+            password_field.send_keys(&password).await?;
+            debug!("Filled in password");
+        }
 
         // Let user handle login
         println!();
@@ -192,10 +198,11 @@ impl AuthManager {
         // Poll for successful login by checking for identity cookie
         let mut attempts = 0;
         let max_attempts = 120; // 2 minutes timeout
-        
+
         // Pre-compile regexes used in the loop
         let fan_id_regex = regex::Regex::new(r#""fanId":(\d+)"#)?;
-        let app_data_regex = regex::Regex::new(r#"<div[^>]+id="DiscoverApp"[^>]+data-blob="([^"]+)""#)?;
+        let app_data_regex =
+            regex::Regex::new(r#"<div[^>]+id="DiscoverApp"[^>]+data-blob="([^"]+)""#)?;
 
         loop {
             tokio::time::sleep(Duration::from_secs(1)).await;
@@ -208,7 +215,7 @@ impl AuthManager {
                 // Check if we're already on the discover page after login redirect
                 let current_url = driver.current_url().await?;
                 debug!("Current URL after login: {}", current_url);
-                
+
                 if !current_url.as_str().contains("/discover") {
                     // Navigate to discover page if we're not already there
                     debug!("Navigating to /discover page for fan_id extraction");
@@ -224,8 +231,7 @@ impl AuthManager {
                 let page_source = driver.source().await?;
 
                 // Extract fan_id from the page
-                let fan_id = if let Some(captures) = fan_id_regex.captures(&page_source)
-                {
+                let fan_id = if let Some(captures) = fan_id_regex.captures(&page_source) {
                     captures.get(1).map(|m| m.as_str().to_string())
                 } else {
                     None
@@ -238,8 +244,7 @@ impl AuthManager {
                         if let Some(data_blob) = captures.get(1) {
                             let decoded = html_escape::decode_html_entities(data_blob.as_str());
                             // Reuse the same regex from above
-                            if let Some(fan_captures) = fan_id_regex.captures(&decoded)
-                            {
+                            if let Some(fan_captures) = fan_id_regex.captures(&decoded) {
                                 fan_captures.get(1).map(|m| m.as_str().to_string())
                             } else {
                                 None
@@ -321,30 +326,31 @@ impl AuthManager {
         let parts: Vec<&str> = stored.splitn(3, ':').collect();
 
         if parts.len() >= 2
-            && let Ok(timestamp) = parts[0].parse::<i64>() {
-                let now = chrono::Utc::now().timestamp();
-                let age_seconds = now - timestamp;
+            && let Ok(timestamp) = parts[0].parse::<i64>()
+        {
+            let now = chrono::Utc::now().timestamp();
+            let age_seconds = now - timestamp;
 
-                // Expire after 10 minutes (600 seconds)
-                if age_seconds > 600 {
-                    debug!(
-                        "Cookie expired (age: {}s), need to re-authenticate",
-                        age_seconds
-                    );
-                    // Delete expired cookie
-                    let _ = entry.delete_credential();
-                    anyhow::bail!("Cookie expired, please re-authenticate");
-                }
-
-                debug!("Cookie is still valid (age: {}s)", age_seconds);
-
-                // Return cookie:fan_id if we have fan_id, otherwise just cookie
-                if parts.len() == 3 {
-                    return Ok(format!("{}:{}", parts[1], parts[2])); // cookie:fan_id
-                } else {
-                    return Ok(parts[1].to_string()); // just cookie
-                }
+            // Expire after 10 minutes (600 seconds)
+            if age_seconds > 600 {
+                debug!(
+                    "Cookie expired (age: {}s), need to re-authenticate",
+                    age_seconds
+                );
+                // Delete expired cookie
+                let _ = entry.delete_credential();
+                anyhow::bail!("Cookie expired, please re-authenticate");
             }
+
+            debug!("Cookie is still valid (age: {}s)", age_seconds);
+
+            // Return cookie:fan_id if we have fan_id, otherwise just cookie
+            if parts.len() == 3 {
+                return Ok(format!("{}:{}", parts[1], parts[2])); // cookie:fan_id
+            } else {
+                return Ok(parts[1].to_string()); // just cookie
+            }
+        }
 
         // Invalid format, treat as expired
         let _ = entry.delete_credential();

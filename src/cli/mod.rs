@@ -1,6 +1,11 @@
+//! Command-line interface definitions and handling
+//!
+//! This module provides the CLI structure, command definitions, and argument parsing.
+
 pub mod auth;
 pub mod commands;
 pub mod completions;
+pub mod driver;
 
 use clap::{Parser, Subcommand, ValueEnum};
 use clap_complete::Shell;
@@ -34,7 +39,7 @@ pub enum Commands {
         /// Filter by artist name (include only matching artists)
         #[arg(long, conflicts_with = "exclude_artist")]
         artist_filter: Option<String>,
-        
+
         /// Exclude artists matching this pattern
         #[arg(long, conflicts_with = "artist_filter")]
         exclude_artist: Option<String>,
@@ -76,11 +81,11 @@ pub enum Commands {
         /// Show only missing albums
         #[arg(long)]
         missing_only: bool,
-        
+
         /// Filter by artist name (include only matching artists)
         #[arg(long, conflicts_with = "exclude_artist")]
         artist_filter: Option<String>,
-        
+
         /// Exclude artists matching this pattern
         #[arg(long, conflicts_with = "artist_filter")]
         exclude_artist: Option<String>,
@@ -119,7 +124,7 @@ pub enum Commands {
         /// Filter by artist name (include only matching artists)
         #[arg(long, conflicts_with = "exclude_artist")]
         artist_filter: Option<String>,
-        
+
         /// Exclude artists matching this pattern
         #[arg(long, conflicts_with = "artist_filter")]
         exclude_artist: Option<String>,
@@ -188,7 +193,7 @@ pub enum AuthService {
     },
 }
 
-#[derive(ValueEnum, Clone, Debug)]
+#[derive(ValueEnum, Clone, Copy, Debug)]
 pub enum BrowserDriver {
     Chrome,
     Firefox,

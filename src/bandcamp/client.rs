@@ -83,7 +83,7 @@ impl BandcampClient {
             urls.push(format!("https://bandcamp.com/{}", user));
             urls.push(format!("https://bandcamp.com/{}/collection", user));
         }
-        
+
         // Pre-compile regex used in the loop
         let fan_id_regex = Regex::new(r#""fan_id"\s*:\s*(\d+)"#)?;
 
@@ -117,22 +117,24 @@ impl BandcampClient {
 
             // Try to find fan_id in the HTML directly using regex
             if let Some(captures) = fan_id_regex.captures(&html)
-                && let Some(fan_id_str) = captures.get(1) {
-                    let fan_id: i64 = fan_id_str.as_str().parse()?;
-                    debug!("Found fan_id via regex: {}", fan_id);
-                    return Ok(fan_id);
-                }
+                && let Some(fan_id_str) = captures.get(1)
+            {
+                let fan_id: i64 = fan_id_str.as_str().parse()?;
+                debug!("Found fan_id via regex: {}", fan_id);
+                return Ok(fan_id);
+            }
 
             // Also try parsing pagedata
             let document = Html::parse_document(&html);
             let selector = Selector::parse("#pagedata").unwrap();
             if let Some(element) = document.select(&selector).next()
                 && let Some(data_blob) = element.value().attr("data-blob")
-                    && let Ok(page_data) = serde_json::from_str::<PageData>(data_blob)
-                        && let Some(fan_data) = page_data.fan_data {
-                            debug!("Found fan_id in pagedata: {}", fan_data.fan_id);
-                            return Ok(fan_data.fan_id);
-                        }
+                && let Ok(page_data) = serde_json::from_str::<PageData>(data_blob)
+                && let Some(fan_data) = page_data.fan_data
+            {
+                debug!("Found fan_id in pagedata: {}", fan_data.fan_id);
+                return Ok(fan_data.fan_id);
+            }
         }
 
         // If we still don't have fan_id, try to get it from the collection page directly

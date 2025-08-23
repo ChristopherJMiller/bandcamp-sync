@@ -1,10 +1,12 @@
+//! Album and track downloading from Bandcamp
+
 use anyhow::{Context, Result};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 use tracing::{debug, info, warn};
 
-/// The TralbumData embedded in album pages
+/// Album metadata from Bandcamp pages
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TralbumData {
     pub artist: Option<String>,
@@ -17,6 +19,7 @@ pub struct TralbumData {
     pub free_download_page: Option<String>,
 }
 
+/// Individual track metadata
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TrackData {
     pub track_num: Option<i32>,
@@ -25,13 +28,14 @@ pub struct TrackData {
     pub file: Option<TrackFile>,
 }
 
+/// Track file download URLs
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TrackFile {
     #[serde(rename = "mp3-128")]
     pub mp3_128: Option<String>,
 }
 
-/// Downloads manager for fetching albums from Bandcamp
+/// Manages album downloads from Bandcamp
 pub struct DownloadManager {
     client: Client,
     cookie: String,
@@ -74,74 +78,76 @@ impl DownloadManager {
         let tralbum_regex = regex::Regex::new(r#"data-tralbum="([^"]+)""#)?;
 
         if let Some(captures) = tralbum_regex.captures(&html)
-            && let Some(json_str) = captures.get(1) {
-                // HTML-decode the JSON string
-                let decoded = html_escape::decode_html_entities(json_str.as_str());
+            && let Some(json_str) = captures.get(1)
+        {
+            // HTML-decode the JSON string
+            let decoded = html_escape::decode_html_entities(json_str.as_str());
 
-                // Parse the TralbumData
-                let data: serde_json::Value =
-                    serde_json::from_str(&decoded).context("Failed to parse TralbumData")?;
+            // Parse the TralbumData
+            let data: serde_json::Value =
+                serde_json::from_str(&decoded).context("Failed to parse TralbumData")?;
 
-                // Create output directory
-                std::fs::create_dir_all(output_dir)?;
+            // Create output directory
+            std::fs::create_dir_all(output_dir)?;
 
-                let mut downloaded_files = Vec::new();
+            let mut downloaded_files = Vec::new();
 
-                // Download album art if available
-                if let Some(art_url) = data["art_url"].as_str() {
-                    let art_url = if art_url.starts_with("http") {
-                        art_url.to_string()
-                    } else {
-                        format!("https:{}", art_url)
-                    };
+            // Download album art if available
+            if let Some(art_url) = data["art_url"].as_str() {
+                let art_url = if art_url.starts_with("http") {
+                    art_url.to_string()
+                } else {
+                    format!("https:{}", art_url)
+                };
 
-                    let cover_path = output_dir.join("cover.jpg");
-                    let art_response = self.client.get(&art_url).send().await?;
-                    if art_response.status().is_success() {
-                        let bytes = art_response.bytes().await?;
-                        std::fs::write(&cover_path, bytes)?;
-                        downloaded_files.push("cover.jpg".to_string());
-                    }
+                let cover_path = output_dir.join("cover.jpg");
+                let art_response = self.client.get(&art_url).send().await?;
+                if art_response.status().is_success() {
+                    let bytes = art_response.bytes().await?;
+                    std::fs::write(&cover_path, bytes)?;
+                    downloaded_files.push("cover.jpg".to_string());
                 }
-
-                // Get the trackinfo array
-                if let Some(trackinfo) = data["trackinfo"].as_array() {
-                    for (index, track) in trackinfo.iter().enumerate() {
-                        let track_num = index + 1;
-                        let title = track["title"].as_str().unwrap_or("Unknown");
-
-                        // Get the mp3-128 URL from the file object
-                        if let Some(file) = track["file"].as_object()
-                            && let Some(mp3_url) = file["mp3-128"].as_str() {
-                                // Construct full URL
-                                let download_url = if mp3_url.starts_with("http") {
-                                    mp3_url.to_string()
-                                } else {
-                                    format!("https:{}", mp3_url)
-                                };
-
-                                // Download the track
-                                let filename =
-                                    format!("{:02} - {}.mp3", track_num, sanitize_filename(title));
-                                let track_path = output_dir.join(&filename);
-
-                                info!("Downloading track: {}", filename);
-
-                                let track_response = self.client.get(&download_url).send().await?;
-
-                                if track_response.status().is_success() {
-                                    let bytes = track_response.bytes().await?;
-                                    std::fs::write(&track_path, bytes)?;
-                                    downloaded_files.push(filename);
-                                } else {
-                                    warn!("Failed to download track: {}", title);
-                                }
-                            }
-                    }
-                }
-
-                return Ok(downloaded_files);
             }
+
+            // Get the trackinfo array
+            if let Some(trackinfo) = data["trackinfo"].as_array() {
+                for (index, track) in trackinfo.iter().enumerate() {
+                    let track_num = index + 1;
+                    let title = track["title"].as_str().unwrap_or("Unknown");
+
+                    // Get the mp3-128 URL from the file object
+                    if let Some(file) = track["file"].as_object()
+                        && let Some(mp3_url) = file["mp3-128"].as_str()
+                    {
+                        // Construct full URL
+                        let download_url = if mp3_url.starts_with("http") {
+                            mp3_url.to_string()
+                        } else {
+                            format!("https:{}", mp3_url)
+                        };
+
+                        // Download the track
+                        let filename =
+                            format!("{:02} - {}.mp3", track_num, sanitize_filename(title));
+                        let track_path = output_dir.join(&filename);
+
+                        info!("Downloading track: {}", filename);
+
+                        let track_response = self.client.get(&download_url).send().await?;
+
+                        if track_response.status().is_success() {
+                            let bytes = track_response.bytes().await?;
+                            std::fs::write(&track_path, bytes)?;
+                            downloaded_files.push(filename);
+                        } else {
+                            warn!("Failed to download track: {}", title);
+                        }
+                    }
+                }
+            }
+
+            return Ok(downloaded_files);
+        }
 
         anyhow::bail!("Could not find TralbumData in album page")
     }

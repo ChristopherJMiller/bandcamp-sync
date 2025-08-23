@@ -5,6 +5,14 @@ edition = "2024"
 authors = ["Chris M <hello@chrismiller.xyz>"]
 description = "Sync your Bandcamp collection to local and remote destinations"
 
+# Optimization settings for release builds
+[profile.release]
+lto = true              # Enable Link Time Optimization
+codegen-units = 1       # Single codegen unit for better optimization
+panic = "abort"         # Abort on panic instead of unwinding
+strip = true            # Strip symbols for smaller binary
+opt-level = 3           # Maximum optimization level
+
 [dependencies]
 # Async runtime
 tokio = { version = "1.42", features = ["full"] }

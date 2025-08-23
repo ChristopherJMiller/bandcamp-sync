@@ -104,7 +104,11 @@ impl StorageBackend for WebDavStorage {
             } else {
                 // Just use the last component of the path
                 let trimmed = href.trim_end_matches('/').trim_start_matches('/');
-                trimmed.split('/').next_back().unwrap_or(trimmed).to_string()
+                trimmed
+                    .split('/')
+                    .next_back()
+                    .unwrap_or(trimmed)
+                    .to_string()
             };
 
             // URL decode the name
@@ -171,9 +175,10 @@ impl StorageBackend for WebDavStorage {
 
         // Ensure parent directory exists
         if let Some(parent) = path.parent()
-            && !parent.as_os_str().is_empty() {
-                self.create_directory(parent).await?;
-            }
+            && !parent.as_os_str().is_empty()
+        {
+            self.create_directory(parent).await?;
+        }
 
         self.client
             .put(&webdav_path, data.to_vec())

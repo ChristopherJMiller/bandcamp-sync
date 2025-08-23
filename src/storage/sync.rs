@@ -1,3 +1,8 @@
+//! Music collection synchronization engine
+//!
+//! Handles comparing Bandcamp collections with storage, downloading missing albums,
+//! and managing the sync process with parallel downloads.
+
 use anyhow::Result;
 use colored::Colorize;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
@@ -13,6 +18,7 @@ use super::{
 };
 use crate::bandcamp::{DownloadManager, models::CollectionItem};
 
+/// Synchronization engine for managing music collection updates
 pub struct SyncEngine {
     storage: Arc<dyn StorageBackend>,
     options: SyncOptions,
@@ -20,13 +26,13 @@ pub struct SyncEngine {
 
 impl SyncEngine {
     pub fn new(storage: Box<dyn StorageBackend>, options: SyncOptions) -> Self {
-        Self { 
+        Self {
             storage: Arc::from(storage),
-            options 
+            options,
         }
     }
 
-    /// Scan the storage for existing music library
+    /// Scans the storage backend for existing music
     pub async fn scan_library(&self) -> Result<Vec<MusicLibraryItem>> {
         info!(
             "Scanning {} for existing music...",
@@ -114,7 +120,7 @@ impl SyncEngine {
         Ok(library)
     }
 
-    /// Compare Bandcamp collection with existing library
+    /// Compares Bandcamp collection with storage to find missing albums
     pub async fn compare_collections(
         &self,
         bandcamp: &[CollectionItem],
@@ -343,9 +349,12 @@ impl SyncEngine {
         println!();
         println!("{}", "Starting sync...".green().bold());
         println!("Found {} albums to download", missing_items.len());
-        
+
         if self.options.parallel_downloads > 0 {
-            println!("Using {} parallel download workers", self.options.parallel_downloads);
+            println!(
+                "Using {} parallel download workers",
+                self.options.parallel_downloads
+            );
         }
         println!();
 
@@ -359,7 +368,7 @@ impl SyncEngine {
             self.sync_parallel(missing_items, cookie, temp_dir).await
         }
     }
-    
+
     /// Sequential sync (original implementation)
     async fn sync_sequential(
         &self,
@@ -368,7 +377,7 @@ impl SyncEngine {
         temp_dir: &TempDir,
     ) -> Result<()> {
         let download_manager = DownloadManager::new(cookie.to_string());
-        
+
         // Create progress bar
         let pb = ProgressBar::new(missing_items.len() as u64);
         pb.set_style(
@@ -418,7 +427,7 @@ impl SyncEngine {
 
         Ok(())
     }
-    
+
     /// Parallel sync with worker pool
     async fn sync_parallel(
         &self,
@@ -426,10 +435,9 @@ impl SyncEngine {
         cookie: &str,
         temp_dir: Arc<TempDir>,
     ) -> Result<()> {
-        
         // Create semaphore to limit concurrent downloads
         let semaphore = Arc::new(Semaphore::new(self.options.parallel_downloads));
-        
+
         // Create multi-progress for parallel progress bars
         let multi_progress = MultiProgress::new();
         let main_pb = multi_progress.add(ProgressBar::new(missing_items.len() as u64));
@@ -439,11 +447,11 @@ impl SyncEngine {
                 .unwrap()
                 .progress_chars("#>-"),
         );
-        
+
         // Clone necessary data for async tasks
         let storage = self.storage.clone();
         let cookie = Arc::new(cookie.to_string());
-        
+
         // Create tasks for all albums
         let tasks: Vec<_> = missing_items
             .iter()
@@ -455,11 +463,11 @@ impl SyncEngine {
                 let temp_dir = temp_dir.clone();
                 let multi_progress = multi_progress.clone();
                 let main_pb = main_pb.clone();
-                
+
                 tokio::spawn(async move {
                     // Acquire permit from semaphore
                     let _permit = semaphore.acquire().await.unwrap();
-                    
+
                     // Create a progress bar for this album
                     let album_pb = multi_progress.add(ProgressBar::new_spinner());
                     album_pb.set_style(
@@ -468,7 +476,7 @@ impl SyncEngine {
                             .unwrap(),
                     );
                     album_pb.set_message(format!("{} - {}", item.band_name, item.item_title));
-                    
+
                     // Download the album
                     let download_manager = DownloadManager::new((*cookie).clone());
                     let result = Self::download_and_sync_album_static(
@@ -478,11 +486,11 @@ impl SyncEngine {
                         temp_dir.path(),
                     )
                     .await;
-                    
+
                     // Update progress
                     album_pb.finish_and_clear();
                     main_pb.inc(1);
-                    
+
                     match &result {
                         Ok(_) => {
                             println!(
@@ -502,21 +510,21 @@ impl SyncEngine {
                             );
                         }
                     }
-                    
+
                     (item, result)
                 })
             })
             .collect();
-        
+
         // Wait for all tasks to complete
         let results = futures::future::join_all(tasks).await;
-        
+
         main_pb.finish_with_message("Sync complete!");
-        
+
         // Count successes and failures
         let mut success_count = 0;
         let mut failure_count = 0;
-        
+
         for result in results {
             match result {
                 Ok((_, Ok(_))) => success_count += 1,
@@ -524,10 +532,15 @@ impl SyncEngine {
                 Err(_) => failure_count += 1,
             }
         }
-        
+
         println!();
         if failure_count == 0 {
-            println!("{}", format!("All {} albums synced successfully!", success_count).green().bold());
+            println!(
+                "{}",
+                format!("All {} albums synced successfully!", success_count)
+                    .green()
+                    .bold()
+            );
         } else {
             println!(
                 "{}",
@@ -539,7 +552,7 @@ impl SyncEngine {
                 .bold()
             );
         }
-        
+
         Ok(())
     }
 
@@ -586,7 +599,7 @@ impl SyncEngine {
 
         Ok(())
     }
-    
+
     /// Download and sync a single album
     async fn download_and_sync_album(
         &self,
@@ -594,13 +607,7 @@ impl SyncEngine {
         item: &CollectionItem,
         temp_dir: &Path,
     ) -> Result<()> {
-        Self::download_and_sync_album_static(
-            &*self.storage,
-            download_manager,
-            item,
-            temp_dir,
-        )
-        .await
+        Self::download_and_sync_album_static(&*self.storage, download_manager, item, temp_dir).await
     }
 }
 

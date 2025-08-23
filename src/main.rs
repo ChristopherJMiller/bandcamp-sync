@@ -1,3 +1,9 @@
+//! Bandcamp Sync - Download and sync your Bandcamp music collection
+//!
+//! This tool provides automated downloading and syncing of your Bandcamp
+//! purchases to local storage or WebDAV servers, with support for incremental
+//! updates, parallel downloads, and flexible filtering options.
+
 mod bandcamp;
 mod cli;
 mod storage;
@@ -8,10 +14,9 @@ use tracing_subscriber::{EnvFilter, fmt, prelude::*};
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    // Parse CLI arguments
     let args = cli::Cli::parse();
 
-    // Set up logging - only show logs in verbose mode
+    // Configure logging based on verbosity flag
     if args.verbose {
         tracing_subscriber::registry()
             .with(
@@ -26,7 +31,6 @@ async fn main() -> Result<()> {
             .with(EnvFilter::new("debug"))
             .init();
     } else {
-        // In normal mode, only show warnings and errors
         tracing_subscriber::registry()
             .with(
                 fmt::layer()
@@ -42,7 +46,6 @@ async fn main() -> Result<()> {
             .init();
     }
 
-    // Handle commands
     cli::commands::CommandHandler::handle(args.command).await?;
 
     Ok(())

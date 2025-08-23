@@ -1,3 +1,8 @@
+//! Storage backend abstraction and synchronization
+//!
+//! Provides a unified interface for local filesystem and WebDAV storage,
+//! along with synchronization capabilities.
+
 use anyhow::Result;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
@@ -11,7 +16,7 @@ pub use local::LocalStorage;
 pub use sync::SyncEngine;
 pub use webdav::WebDavStorage;
 
-/// Represents a file or directory in the storage
+/// File or directory metadata in storage
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StorageItem {
     pub path: PathBuf,
@@ -20,7 +25,7 @@ pub struct StorageItem {
     pub modified: Option<chrono::DateTime<chrono::Utc>>,
 }
 
-/// Represents an artist/album structure
+/// Music library item with album metadata
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MusicLibraryItem {
     pub artist: String,
@@ -29,25 +34,25 @@ pub struct MusicLibraryItem {
     pub has_cover: bool,
 }
 
-/// Common trait for storage backends
+/// Storage backend interface
 #[async_trait]
 pub trait StorageBackend: Send + Sync {
-    /// List all items in a directory
+    /// Lists contents of a directory
     async fn list_directory(&self, path: &Path) -> Result<Vec<StorageItem>>;
 
-    /// Check if a path exists
+    /// Checks if a path exists
     async fn exists(&self, path: &Path) -> Result<bool>;
 
-    /// Create a directory (including parents)
+    /// Creates a directory and any missing parent directories
     async fn create_directory(&self, path: &Path) -> Result<()>;
 
-    /// Upload/write a file
+    /// Writes file data to the specified path
     async fn write_file(&self, path: &Path, data: &[u8]) -> Result<()>;
 
-    /// Get storage type name for display
+    /// Returns a human-readable storage type name
     fn storage_type(&self) -> &str;
 
-    /// Get the root path/URL
+    /// Returns the root path or URL
     fn root_path(&self) -> String;
 }
 
@@ -55,7 +60,7 @@ pub trait StorageBackend: Send + Sync {
 #[derive(Debug, Clone)]
 pub struct SyncOptions {
     pub dry_run: bool,
-    pub parallel_downloads: usize,  // 0 = disabled, 1-6 = number of workers
+    pub parallel_downloads: usize, // 0 = disabled, 1-6 = number of workers
     pub skip_cover_art: bool,
     pub audio_format: AudioFormat,
 }
