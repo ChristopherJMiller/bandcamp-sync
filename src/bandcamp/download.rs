@@ -52,7 +52,6 @@ impl DownloadManager {
 
         Self { client, cookie }
     }
-    
 
     /// Download tracks directly from album page (like bandcamp-dl does)
     pub async fn download_tracks_from_album_page(
@@ -155,4 +154,3 @@ impl DownloadManager {
         anyhow::bail!("Could not find TralbumData in album page")
     }
 }
-

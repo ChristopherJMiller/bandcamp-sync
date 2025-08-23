@@ -101,7 +101,11 @@ impl CommandHandler {
                 Self::handle_completion(shell);
                 Ok(())
             }
-            Commands::ImportZip { zip_path, webdav_url, local_path } => {
+            Commands::ImportZip {
+                zip_path,
+                webdav_url,
+                local_path,
+            } => {
                 let storage = StorageOptions {
                     webdav_url,
                     local_path,
@@ -612,21 +616,28 @@ impl CommandHandler {
         println!();
         Ok(())
     }
-    
+
     /// Handle import-zip command
-    pub async fn handle_import_zip(zip_path: &std::path::Path, storage_options: &StorageOptions) -> Result<()> {
+    async fn handle_import_zip(
+        zip_path: &std::path::Path,
+        storage_options: &StorageOptions,
+    ) -> Result<()> {
+        use crate::utils::sanitize_filename;
         use std::io::Cursor;
         use zip::ZipArchive;
-        use crate::utils::sanitize_filename;
-        
+
         // Verify zip file exists
         if !zip_path.exists() {
             anyhow::bail!("Zip file not found: {}", zip_path.display());
         }
-        
+
         // Initialize storage backend
-        let storage = Self::get_storage(storage_options.webdav_url.clone(), storage_options.local_path.clone()).await?;
-        
+        let storage = Self::get_storage(
+            storage_options.webdav_url.clone(),
+            storage_options.local_path.clone(),
+        )
+        .await?;
+
         // Get Bandcamp collection to show user options
         let cookie = match AuthManager::get_bandcamp_cookie() {
             Ok(cookie) => cookie,
@@ -636,14 +647,14 @@ impl CommandHandler {
                 anyhow::bail!("Authentication required to match zip to collection");
             }
         };
-        
+
         let client = BandcampClient::new(cookie)?;
         let collection = client.fetch_collection().await?;
-        
+
         // Show user the albums to choose from
         println!("\n{}", "Available albums in your collection:".bright_cyan());
         println!("{}", "─".repeat(60));
-        
+
         for (idx, item) in collection.iter().enumerate() {
             if item.item_type == "album" {
                 println!(
@@ -654,21 +665,20 @@ impl CommandHandler {
                 );
             }
         }
-        
+
         // Ask user to select which album this zip is for
         println!("\n{}", "Which album is this zip file for?".bright_cyan());
         print!("Enter number (1-{}): ", collection.len());
         std::io::Write::flush(&mut std::io::stdout())?;
-        
+
         let mut input = String::new();
         std::io::stdin().read_line(&mut input)?;
-        let selection: usize = input.trim().parse()
-            .context("Invalid number")?;
-        
+        let selection: usize = input.trim().parse().context("Invalid number")?;
+
         if selection == 0 || selection > collection.len() {
             anyhow::bail!("Invalid selection");
         }
-        
+
         let selected_item = &collection[selection - 1];
         println!(
             "\n{} {} - {}",
@@ -676,53 +686,57 @@ impl CommandHandler {
             selected_item.band_name,
             selected_item.item_title
         );
-        
+
         // Extract and import the zip
-        println!("\n{} {}", "Importing from:".bright_cyan(), zip_path.display());
-        
+        println!(
+            "\n{} {}",
+            "Importing from:".bright_cyan(),
+            zip_path.display()
+        );
+
         // Read the zip file
         let zip_data = std::fs::read(zip_path)?;
         let cursor = Cursor::new(zip_data);
         let mut archive = ZipArchive::new(cursor)?;
-        
+
         // Create the album directory in storage
         let artist = sanitize_filename(&selected_item.band_name);
         let album = sanitize_filename(&selected_item.item_title);
         let album_path = PathBuf::from(&artist).join(&album);
-        
+
         storage.create_directory(&album_path).await?;
         println!("Created directory: {}/{}", artist, album);
-        
+
         // Extract and upload each file
         let mut uploaded_count = 0;
         for i in 0..archive.len() {
             let mut file = archive.by_index(i)?;
             let file_name = file.name().to_string();
-            
+
             // Skip directories and system files
             if file.is_dir() || file_name.starts_with("__MACOSX") || file_name.starts_with('.') {
                 continue;
             }
-            
+
             // Extract just the filename (not the full path)
             let output_name = std::path::Path::new(&file_name)
                 .file_name()
                 .and_then(|n| n.to_str())
                 .unwrap_or(&file_name)
                 .to_string();
-            
+
             // Read file contents
             let mut contents = Vec::new();
             std::io::Read::read_to_end(&mut file, &mut contents)?;
-            
+
             // Upload to storage
             let dest_path = album_path.join(&output_name);
             storage.write_file(&dest_path, &contents).await?;
-            
+
             println!("  ✓ Uploaded: {}", output_name);
             uploaded_count += 1;
         }
-        
+
         println!(
             "\n{} Imported {} files to {}/{}",
             "✓".bright_green(),
@@ -730,7 +744,7 @@ impl CommandHandler {
             artist,
             album
         );
-        
+
         Ok(())
     }
 }

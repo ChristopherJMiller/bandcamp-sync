@@ -146,7 +146,7 @@ pub enum Commands {
         /// Path to the zip file to import
         #[arg(value_name = "ZIP_FILE")]
         zip_path: PathBuf,
-        
+
         /// WebDAV URL (mutually exclusive with --local-path)
         #[arg(long, env = "WEBDAV_URL", conflicts_with = "local_path")]
         webdav_url: Option<String>,

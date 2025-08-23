@@ -611,4 +611,3 @@ impl SyncEngine {
         Self::download_and_sync_album_static(&*self.storage, download_manager, item, temp_dir).await
     }
 }
-

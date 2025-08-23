@@ -93,10 +93,10 @@ impl DriverManager {
                 cmd.arg(format!("--port={}", self.port));
             }
             BrowserDriver::Firefox => {
-                cmd.args(&["--port", &self.port.to_string()]);
+                cmd.args(["--port", &self.port.to_string()]);
             }
             BrowserDriver::Safari => {
-                cmd.args(&["--port", &self.port.to_string()]);
+                cmd.args(["--port", &self.port.to_string()]);
                 // Safari driver requires additional setup
                 cmd.arg("--enable");
             }
@@ -134,15 +134,15 @@ impl DriverManager {
         let max_attempts = 30; // 30 seconds timeout
 
         for attempt in 1..=max_attempts {
-            if let Ok(response) = reqwest::get(&url).await {
-                if response.status().is_success() {
-                    info!(
-                        "{} is ready on port {}",
-                        self.driver.driver_name(),
-                        self.port
-                    );
-                    return Ok(());
-                }
+            if let Ok(response) = reqwest::get(&url).await
+                && response.status().is_success()
+            {
+                info!(
+                    "{} is ready on port {}",
+                    self.driver.driver_name(),
+                    self.port
+                );
+                return Ok(());
             }
 
             if attempt < max_attempts {

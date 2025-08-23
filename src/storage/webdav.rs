@@ -76,7 +76,7 @@ impl StorageBackend for WebDavStorage {
         // When listing root ("/"), all items are subdirectories
         // When listing a subdirectory, first item is the directory itself
         let skip_first = !path.as_os_str().is_empty();
-        
+
         for (i, item) in items.into_iter().enumerate() {
             // Skip the directory itself when listing a subdirectory
             if skip_first && i == 0 {
@@ -98,7 +98,6 @@ impl StorageBackend for WebDavStorage {
             } else {
                 continue;
             };
-            
 
             // Extract the path from the href
             // The href might be a full URL or just a path
