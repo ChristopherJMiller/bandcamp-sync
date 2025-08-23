@@ -6,6 +6,8 @@ use std::time::Duration;
 use thirtyfour::prelude::*;
 use tracing::{debug, info};
 
+use super::BrowserDriver;
+
 const KEYRING_SERVICE: &str = "bandcamp-sync";
 
 pub struct AuthManager;
@@ -13,6 +15,8 @@ pub struct AuthManager;
 impl AuthManager {
     pub async fn authenticate_bandcamp(
         headless: bool,
+        driver: BrowserDriver,
+        driver_port: Option<u16>,
         username: Option<String>,
         password: Option<String>,
         cookie: Option<String>,
@@ -37,7 +41,7 @@ impl AuthManager {
 
         // Launch browser for login
         debug!("Launching browser for Bandcamp login...");
-        let cookie = Self::browser_login(username, password, headless).await?;
+        let cookie = Self::browser_login(driver, driver_port, username, password, headless).await?;
 
         // Store in keyring
         debug!("Storing cookie in keyring...");
@@ -98,25 +102,49 @@ impl AuthManager {
     }
 
     async fn browser_login(
+        browser: BrowserDriver,
+        driver_port: Option<u16>,
         username: Option<String>,
         password: Option<String>,
         headless: bool,
     ) -> Result<String> {
-        // Set up Chrome capabilities
-        let mut caps = DesiredCapabilities::chrome();
-        if headless {
-            caps.add_arg("--headless")?;
+        // Get the port to use
+        let port = driver_port.unwrap_or_else(|| browser.default_port());
+        
+        // Connect to WebDriver - create driver differently based on browser type
+        let url = format!("http://localhost:{}", port);
+        debug!("Connecting to {} on port {}", browser.driver_name(), port);
+        
+        let driver = match browser {
+            BrowserDriver::Chrome => {
+                let mut caps = DesiredCapabilities::chrome();
+                if headless {
+                    caps.add_arg("--headless")?;
+                }
+                caps.add_arg("--disable-blink-features=AutomationControlled")?;
+                caps.add_arg(
+                    "--user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
+                )?;
+                WebDriver::new(&url, caps).await
+            }
+            BrowserDriver::Firefox => {
+                let mut caps = DesiredCapabilities::firefox();
+                if headless {
+                    caps.add_arg("-headless")?;
+                }
+                WebDriver::new(&url, caps).await
+            }
+            BrowserDriver::Safari => {
+                let caps = DesiredCapabilities::safari();
+                WebDriver::new(&url, caps).await
+            }
         }
-        caps.add_arg("--disable-blink-features=AutomationControlled")?;
-        caps.add_arg(
-            "--user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
-        )?;
-
-        // Connect to WebDriver (user needs chromedriver running)
-        debug!("Connecting to ChromeDriver on port 9515");
-        let driver = WebDriver::new("http://localhost:9515", caps)
-            .await
-            .context("Failed to connect to ChromeDriver. Please run: chromedriver --port=9515")?;
+        .with_context(|| format!(
+            "Failed to connect to {}. Please run: {} --port={}",
+            browser.driver_name(),
+            browser.driver_name(),
+            port
+        ))?;
 
         // Navigate to Bandcamp login
         driver

@@ -99,6 +99,8 @@ impl CommandHandler {
         match service {
             AuthService::Bandcamp {
                 headless,
+                driver,
+                driver_port,
                 username,
                 password,
                 cookie,
@@ -106,7 +108,7 @@ impl CommandHandler {
             } => {
                 println!("{}", "Authenticating with Bandcamp...".blue());
                 let _cookie =
-                    AuthManager::authenticate_bandcamp(headless, username, password, cookie, force)
+                    AuthManager::authenticate_bandcamp(headless, driver, driver_port, username, password, cookie, force)
                         .await?;
                 println!("{}", "✓ Bandcamp authentication successful".green());
             }

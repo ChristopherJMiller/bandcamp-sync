@@ -147,6 +147,14 @@ pub enum AuthService {
         #[arg(long)]
         headless: bool,
 
+        /// Browser driver to use
+        #[arg(long, default_value = "firefox", env = "BROWSER_DRIVER")]
+        driver: BrowserDriver,
+
+        /// WebDriver port (default: 9515 for Chrome, 4444 for Firefox/Safari)
+        #[arg(long, env = "WEBDRIVER_PORT")]
+        driver_port: Option<u16>,
+
         /// Bandcamp username/email
         #[arg(short, long, env = "BANDCAMP_USER")]
         username: Option<String>,
@@ -178,6 +186,31 @@ pub enum AuthService {
         #[arg(short, long, env = "WEBDAV_PASS")]
         password: Option<String>,
     },
+}
+
+#[derive(ValueEnum, Clone, Debug)]
+pub enum BrowserDriver {
+    Chrome,
+    Firefox,
+    Safari,
+}
+
+impl BrowserDriver {
+    pub fn default_port(&self) -> u16 {
+        match self {
+            BrowserDriver::Chrome => 9515,
+            BrowserDriver::Firefox => 4444,
+            BrowserDriver::Safari => 4444,
+        }
+    }
+
+    pub fn driver_name(&self) -> &str {
+        match self {
+            BrowserDriver::Chrome => "chromedriver",
+            BrowserDriver::Firefox => "geckodriver",
+            BrowserDriver::Safari => "safaridriver",
+        }
+    }
 }
 
 #[derive(ValueEnum, Clone, Debug)]

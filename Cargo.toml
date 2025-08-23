@@ -2,9 +2,8 @@
 name = "bandcamp-sync"
 version = "0.1.0"
 edition = "2024"
-authors = ["Chris Miller <cmiller548@gmail.com>"]
-description = "Sync Bandcamp purchases to WebDAV music library (upsert-only)"
-license = "MIT"
+authors = ["Chris M <hello@chrismiller.xyz>"]
+description = "Sync your Bandcamp collection to local and remote destinations"
 
 [dependencies]
 # Async runtime
