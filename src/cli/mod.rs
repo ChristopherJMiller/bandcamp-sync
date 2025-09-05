@@ -158,6 +158,56 @@ pub enum Commands {
 
     /// Check authentication status (debug)
     Status,
+
+    /// Query CD information (for debugging)
+    QueryCd {
+        /// CD device path (e.g. /dev/cdrom)
+        #[arg(long, default_value = "auto")]
+        device: String,
+
+        /// Show raw TOC data
+        #[arg(long)]
+        show_toc: bool,
+
+        /// Skip MusicBrainz lookup
+        #[arg(long)]
+        no_lookup: bool,
+
+        /// Manually specify disc number for multi-disc releases (for testing)
+        #[arg(long)]
+        disc_number: Option<i32>,
+    },
+
+    /// Import music from CD
+    ImportCd {
+        /// CD device path (e.g. /dev/cdrom)
+        #[arg(long, default_value = "auto")]
+        device: String,
+
+        /// WebDAV URL (mutually exclusive with --local-path)
+        #[arg(long, env = "WEBDAV_URL", conflicts_with = "local_path")]
+        webdav_url: Option<String>,
+
+        /// Local folder path (mutually exclusive with --webdav-url)
+        #[arg(long, env = "LOCAL_PATH", conflicts_with = "webdav_url")]
+        local_path: Option<String>,
+
+        /// Audio format for ripping
+        #[arg(short, long, default_value = "aac")]
+        format: AudioFormat,
+
+        /// Skip MusicBrainz lookup (use CD-TEXT only)
+        #[arg(long)]
+        no_lookup: bool,
+
+        /// Only download and upload cover art, skip ripping tracks
+        #[arg(long)]
+        just_cover: bool,
+
+        /// Manually specify disc number for multi-disc releases
+        #[arg(long)]
+        disc_number: Option<i32>,
+    },
 }
 
 #[derive(Subcommand, Debug)]

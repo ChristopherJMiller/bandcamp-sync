@@ -5,6 +5,7 @@
 //! updates, parallel downloads, and flexible filtering options.
 
 mod bandcamp;
+mod cd;
 mod cli;
 mod storage;
 mod utils;

@@ -1,3 +1,4 @@
+use crate::utils::sanitize_filename;
 use anyhow::{Context, Result};
 use colored::Colorize;
 use indicatif::{ProgressBar, ProgressStyle};
@@ -113,6 +114,32 @@ impl CommandHandler {
                 Self::handle_import_zip(&zip_path, &storage).await
             }
             Commands::Status => Self::handle_status().await,
+            Commands::QueryCd {
+                device,
+                show_toc,
+                no_lookup,
+                disc_number,
+            } => Self::handle_query_cd(device, show_toc, no_lookup, disc_number).await,
+            Commands::ImportCd {
+                device,
+                webdav_url,
+                local_path,
+                format,
+                no_lookup,
+                just_cover,
+                disc_number,
+            } => {
+                Self::handle_import_cd(
+                    device,
+                    webdav_url,
+                    local_path,
+                    format,
+                    no_lookup,
+                    just_cover,
+                    disc_number,
+                )
+                .await
+            }
         }
     }
 
@@ -747,6 +774,747 @@ impl CommandHandler {
             artist,
             album
         );
+
+        Ok(())
+    }
+
+    /// Helper function to lookup releases in MusicBrainz using both disc ID and TOC
+    async fn lookup_releases_in_musicbrainz(
+        mb_client: &crate::cd::MusicBrainzClient,
+        disc_id: &str,
+        toc: &crate::cd::models::CDToc,
+    ) -> Result<Vec<crate::cd::CDAlbum>> {
+        use tracing::debug;
+
+        // Try disc ID lookup first
+        let mut releases = match mb_client.lookup_by_disc_id(disc_id).await {
+            Ok(r) => r,
+            Err(e) => {
+                debug!("Disc ID lookup error: {}", e);
+                Vec::new()
+            }
+        };
+
+        // If disc ID lookup fails, try TOC submission
+        if releases.is_empty() {
+            println!("Disc ID not found, trying TOC submission...");
+            releases = match mb_client.lookup_by_toc(toc).await {
+                Ok(r) => r,
+                Err(e) => {
+                    debug!("TOC lookup error: {}", e);
+                    Vec::new()
+                }
+            };
+        }
+
+        Ok(releases)
+    }
+
+    async fn handle_query_cd(
+        device: String,
+        show_toc: bool,
+        no_lookup: bool,
+        manual_disc_number: Option<i32>,
+    ) -> Result<()> {
+        use crate::cd::models::CDToc;
+        use crate::cd::{CDReader, MusicBrainzClient};
+        use colored::Colorize;
+
+        // Helper to generate MusicBrainz TOC submission string
+        fn generate_mb_toc_string(toc: &CDToc) -> String {
+            let mut parts = vec![
+                toc.first_track.to_string(),
+                toc.last_track.to_string(),
+                toc.leadout_offset.to_string(),
+            ];
+            for offset in &toc.track_offsets {
+                parts.push(offset.to_string());
+            }
+            parts.join("+")
+        }
+
+        println!("{}", "🔍 Querying CD information...".blue().bold());
+
+        // Initialize CD reader
+        let reader = if device == "auto" {
+            println!("Auto-detecting CD device...");
+            CDReader::auto_detect()?
+        } else {
+            CDReader::new(device.clone())
+        };
+
+        println!("Using device: {}\n", device.green());
+
+        // Check if disc is present
+        if !reader.has_disc().await? {
+            anyhow::bail!("No disc found in drive");
+        }
+
+        // Read TOC
+        println!("{}", "Reading Table of Contents...".yellow());
+        let toc = reader.read_toc().await?;
+        let disc_id = toc.calculate_disc_id();
+
+        println!("✓ Disc ID: {}", disc_id.bright_cyan());
+        println!("  Tracks: {} to {}", toc.first_track, toc.last_track);
+        println!("  Leadout: {}", toc.leadout_offset);
+
+        if show_toc {
+            println!("\n{}", "Raw TOC Data:".underline());
+            println!("  First track: {}", toc.first_track);
+            println!("  Last track: {}", toc.last_track);
+            println!("  Leadout offset: {}", toc.leadout_offset);
+            println!("  Track offsets:");
+            for (i, offset) in toc.track_offsets.iter().enumerate() {
+                let track_num = i + 1;
+                let seconds = offset / 75;
+                let frames = offset % 75;
+                let minutes = seconds / 60;
+                let secs = seconds % 60;
+                println!(
+                    "    Track {:2}: {:7} ({}:{:02}.{:02})",
+                    track_num, offset, minutes, secs, frames
+                );
+            }
+        }
+
+        // Try to read CD-TEXT
+        println!("\n{}", "Checking for CD-TEXT...".yellow());
+        if let Some(cd_text) = reader.read_cd_text().await? {
+            println!("✓ CD-TEXT found:");
+            if let Some(artist) = &cd_text.artist {
+                println!("  Artist: {}", artist.bright_green());
+            }
+            if let Some(album) = &cd_text.album_title {
+                println!("  Album: {}", album.bright_green());
+            }
+        } else {
+            println!("  No CD-TEXT data found");
+        }
+
+        // MusicBrainz lookup
+        if !no_lookup {
+            println!("\n{}", "Looking up in MusicBrainz...".yellow());
+            let mb_client = MusicBrainzClient::new();
+
+            // Use shared lookup logic
+            let mut releases =
+                Self::lookup_releases_in_musicbrainz(&mb_client, &disc_id, &toc).await?;
+
+            // Apply manual disc number override if provided
+            if let Some(disc_num) = manual_disc_number {
+                println!(
+                    "{}",
+                    format!(
+                        "⚠ Manually overriding disc number to {} for all releases",
+                        disc_num
+                    )
+                    .yellow()
+                );
+                for release in releases.iter_mut() {
+                    release.disc_number = Some(disc_num);
+                    if release.total_discs == Some(1) {
+                        release.total_discs = Some(disc_num.max(2));
+                    }
+                }
+            }
+
+            if !releases.is_empty() {
+                println!("✓ Found {} release(s) in MusicBrainz:", releases.len());
+
+                for (i, release) in releases.iter().enumerate() {
+                    let disc_info = match (release.disc_number, release.total_discs) {
+                        (Some(disc), Some(total)) if total > 1 => {
+                            format!(" [Disc {}/{}]", disc, total)
+                        }
+                        _ => String::new(),
+                    };
+
+                    println!(
+                        "\n  {}. {} - {}{}",
+                        i + 1,
+                        release.artist.bright_cyan(),
+                        release.album_title.bright_magenta(),
+                        disc_info.bright_yellow()
+                    );
+
+                    if let Some(date) = &release.release_date {
+                        println!("     Released: {}", date);
+                    }
+                    if let Some(label) = &release.label {
+                        println!("     Label: {}", label);
+                    }
+                    if let Some(catalog) = &release.catalog_number {
+                        println!("     Catalog: {}", catalog);
+                    }
+                    if !release.genres.is_empty() {
+                        println!("     Genres: {}", release.genres.join(", "));
+                    }
+                    if release.cover_art_available {
+                        println!("     Cover art: {}", "Available".green());
+                    }
+
+                    println!("     Tracks:");
+                    for track in &release.tracks {
+                        let duration_str = if track.duration > 0.0 {
+                            let mins = (track.duration / 60.0) as u32;
+                            let secs = (track.duration % 60.0) as u32;
+                            format!(" ({}:{:02})", mins, secs)
+                        } else {
+                            String::new()
+                        };
+
+                        println!(
+                            "       {:2}. {}{}",
+                            track.track_num, track.title, duration_str
+                        );
+                    }
+                }
+            } else {
+                println!(
+                    "❌ No releases found in MusicBrainz for disc ID: {}",
+                    disc_id
+                );
+                println!("\nPossible reasons:");
+                println!("  • This CD is not in the MusicBrainz database");
+                println!("  • Try submitting this disc to MusicBrainz at:");
+                println!(
+                    "    https://musicbrainz.org/cdtoc/attach?toc={}",
+                    generate_mb_toc_string(&toc)
+                );
+            }
+        }
+
+        Ok(())
+    }
+
+    async fn handle_import_cd(
+        device: String,
+        webdav_url: Option<String>,
+        local_path: Option<String>,
+        format: AudioFormat,
+        no_lookup: bool,
+        just_cover: bool,
+        manual_disc_number: Option<i32>,
+    ) -> Result<()> {
+        use crate::cd::models::CDTrack;
+        use crate::cd::{CDReader, CDRipper, MusicBrainzClient};
+        use dialoguer::{Confirm, Select, theme::ColorfulTheme};
+        use std::io::{self, Write};
+
+        println!("{}", "🎵 CD Import".bright_blue().bold());
+        println!();
+
+        // Check dependencies first
+        CDRipper::check_dependencies().await?;
+
+        // Setup storage backend
+        let storage: Box<dyn StorageBackend> = if let Some(url) = webdav_url {
+            let auth = AuthManager::get_webdav_auth(&url).await?;
+            Box::new(WebDavStorage::new(&url, Some(auth.username), Some(auth.password)).await?)
+        } else if let Some(path) = local_path {
+            Box::new(LocalStorage::new(PathBuf::from(path))?)
+        } else {
+            anyhow::bail!("Either --webdav-url or --local-path must be specified");
+        };
+
+        // Initialize CD reader
+        let reader = if device == "auto" {
+            println!("Auto-detecting CD drive...");
+            CDReader::auto_detect()?
+        } else {
+            CDReader::new(&device)
+        };
+
+        // Check if disc is present
+        if !reader.has_disc().await? {
+            anyhow::bail!("No disc found in drive. Please insert a CD and try again.");
+        }
+
+        println!("{}", "✓ CD detected".green());
+
+        // Read TOC for first disc
+        println!("Reading CD table of contents...");
+        let toc = reader.read_toc().await?;
+        let disc_id = toc.calculate_disc_id();
+
+        println!("Disc ID: {}", disc_id.bright_cyan());
+        println!("Tracks: {}", toc.last_track);
+        println!();
+
+        // Try to get CD-TEXT info first
+        let cd_text = reader.read_cd_text().await?;
+
+        // Prepare album metadata - will be used as template for multi-disc
+        let base_album = if no_lookup {
+            // Use CD-TEXT only or prompt for manual entry
+            if let Some(text_info) = cd_text {
+                use crate::cd::CDAlbum;
+                CDAlbum {
+                    disc_id: disc_id.clone(),
+                    artist: text_info.artist.unwrap_or_else(|| {
+                        dialoguer::Input::new()
+                            .with_prompt("Artist name")
+                            .interact_text()
+                            .unwrap_or_else(|_| "Unknown Artist".to_string())
+                    }),
+                    album_title: text_info.album_title.unwrap_or_else(|| {
+                        dialoguer::Input::new()
+                            .with_prompt("Album title")
+                            .interact_text()
+                            .unwrap_or_else(|_| "Unknown Album".to_string())
+                    }),
+                    release_date: None,
+                    label: None,
+                    catalog_number: None,
+                    barcode: None,
+                    tracks: Vec::new(), // Will need to fill this
+                    genres: Vec::new(),
+                    total_duration: 0.0,
+                    mb_release_id: None,
+                    mb_release_group_id: None,
+                    mb_artist_id: None,
+                    cover_art_url: None,
+                    cover_art_available: false,
+                    disc_number: Some(1),
+                    total_discs: Some(1),
+                    media_format: "CD".to_string(),
+                }
+            } else {
+                anyhow::bail!(
+                    "No CD-TEXT found and MusicBrainz lookup disabled. Remove --no-lookup to search MusicBrainz."
+                );
+            }
+        } else {
+            // Look up in MusicBrainz
+            println!("Looking up disc in MusicBrainz...");
+            let mb_client = MusicBrainzClient::new();
+
+            // Use shared lookup logic (disc ID first, then TOC)
+            let mut releases =
+                Self::lookup_releases_in_musicbrainz(&mb_client, &disc_id, &toc).await?;
+
+            if releases.is_empty() {
+                println!("{}", "No exact match found in MusicBrainz".yellow());
+
+                // Try with CD-TEXT if available
+                if let Some(text_info) = cd_text
+                    && let (Some(artist), Some(album)) = (&text_info.artist, &text_info.album_title)
+                {
+                    println!("Searching by CD-TEXT: {} - {}", artist, album);
+                    releases = mb_client
+                        .search_by_metadata(artist, album, toc.last_track as usize)
+                        .await?;
+                }
+
+                if releases.is_empty() {
+                    anyhow::bail!("No releases found. Try using --no-lookup for manual entry.");
+                }
+            }
+
+            // Always prompt user to select when multiple releases are found
+            if releases.len() > 1 {
+                println!("\n{} Multiple releases found:", "⚠".yellow());
+                let items: Vec<String> = releases
+                    .iter()
+                    .enumerate()
+                    .map(|(i, r)| {
+                        let disc_info = match (r.disc_number, r.total_discs) {
+                            (Some(disc), Some(total)) if total > 1 => {
+                                format!(" [Disc {}/{}]", disc, total)
+                            }
+                            _ => String::new(),
+                        };
+                        format!(
+                            "{}. {} - {}{} ({}, {})",
+                            i + 1,
+                            r.artist,
+                            r.album_title,
+                            disc_info,
+                            r.release_date.as_deref().unwrap_or("unknown year"),
+                            r.label.as_deref().unwrap_or("unknown label")
+                        )
+                    })
+                    .collect();
+
+                // Show all releases
+                for item in &items {
+                    println!("  {}", item);
+                }
+                println!();
+
+                let selection = Select::with_theme(&ColorfulTheme::default())
+                    .with_prompt("Select the correct release")
+                    .items(&items)
+                    .default(0)
+                    .interact()?;
+
+                releases[selection].clone()
+            } else if releases.len() == 1 {
+                println!(
+                    "Found release: {} - {}",
+                    releases[0].artist, releases[0].album_title
+                );
+                releases.into_iter().next().unwrap()
+            } else {
+                anyhow::bail!("No releases found in MusicBrainz")
+            }
+        };
+
+        // Apply manual disc number override if provided for starting disc
+        let mut base_album = base_album;
+        let starting_disc = if let Some(disc_num) = manual_disc_number {
+            println!(
+                "\n{}",
+                format!("⚠ Manually overriding starting disc number to {}", disc_num).yellow()
+            );
+            base_album.disc_number = Some(disc_num);
+            // If we're manually setting disc number and total_discs is 1, assume it's a multi-disc
+            if base_album.total_discs == Some(1) {
+                println!("{}", "  Also setting total_discs to at least 2 (since you're overriding disc number)".yellow());
+                base_album.total_discs = Some(disc_num.max(2));
+            }
+            disc_num
+        } else {
+            base_album.disc_number.unwrap_or(1)
+        };
+
+        // Store the MusicBrainz release ID for subsequent disc lookups
+        let mb_release_id = base_album.mb_release_id.clone();
+
+        // Check if this is a multi-disc release
+        let total_discs = base_album.total_discs.unwrap_or(1);
+        let is_multi_disc = total_discs > 1;
+
+        if is_multi_disc {
+            println!(
+                "\n{}",
+                format!("Multi-disc release detected: {} discs total", total_discs).bright_cyan()
+            );
+            println!("{}", "Will import each disc sequentially.".bright_cyan());
+            println!(
+                "{}",
+                "Press 's' + ENTER at any disc prompt to skip remaining discs.".yellow()
+            );
+        }
+
+        // Display base album info
+        println!("\n{}", "Album Information:".bright_green());
+        println!("  Artist: {}", base_album.artist.bright_white());
+        println!("  Album:  {}", base_album.album_title.bright_white());
+        if is_multi_disc {
+            println!("  Total Discs: {}", total_discs);
+        }
+        if let Some(date) = &base_album.release_date {
+            println!("  Year:   {}", date);
+        }
+        if let Some(label) = &base_album.label {
+            println!("  Label:  {}", label);
+        }
+        println!();
+
+        // Initial confirmation
+        let prompt = if just_cover {
+            "Download and upload cover art for all discs?".to_string()
+        } else if is_multi_disc {
+            format!("Proceed with ripping {} disc(s)?", total_discs)
+        } else {
+            "Proceed with ripping?".to_string()
+        };
+
+        if !Confirm::new()
+            .with_prompt(&prompt)
+            .default(true)
+            .interact()?
+        {
+            println!("Cancelled.");
+            return Ok(());
+        }
+
+        // Create ripper - convert CLI AudioFormat to storage AudioFormat
+        let storage_format = match format {
+            AudioFormat::Aac => crate::storage::AudioFormat::Aac,
+            AudioFormat::Mp3 => crate::storage::AudioFormat::Mp3,
+            AudioFormat::Flac => crate::storage::AudioFormat::Flac,
+            AudioFormat::Wav => crate::storage::AudioFormat::Wav,
+        };
+        let ripper = CDRipper::new(
+            if device == "auto" {
+                "/dev/cdrom"
+            } else {
+                &device
+            },
+            storage_format,
+        );
+
+        // Process each disc in the multi-disc set
+        let mut current_disc = starting_disc;
+        let mut skip_remaining = false;
+        let mut total_tracks_so_far = 0i32; // Track count from previous discs
+
+        while current_disc <= total_discs as i32 && !skip_remaining {
+            // For discs after the first, eject and wait for next disc
+            if current_disc > starting_disc {
+                println!("\n{}", "─".repeat(60).bright_black());
+                println!("\n{}", "Ejecting disc...".yellow());
+                if let Err(e) = reader.eject_disc().await {
+                    println!(
+                        "⚠ Failed to auto-eject: {}. Please remove disc manually.",
+                        e
+                    );
+                }
+
+                // Prompt for next disc with skip option
+                println!(
+                    "\n{}",
+                    format!("Please insert Disc {} of {}", current_disc, total_discs).bright_cyan()
+                );
+                println!(
+                    "Press {} when ready, or {} to skip remaining discs",
+                    "ENTER".bright_green(),
+                    "'s' + ENTER".bright_yellow()
+                );
+
+                // Read user input
+                io::stdout().flush()?;
+                let mut input = String::new();
+                io::stdin().read_line(&mut input)?;
+
+                if input.trim().to_lowercase() == "s" {
+                    println!("Skipping remaining discs.");
+                    skip_remaining = true;
+                    continue;
+                }
+
+                // Wait for disc to be inserted
+                println!("Waiting for disc...");
+                reader.wait_for_disc().await?;
+
+                // Read TOC of new disc
+                println!("Reading new disc...");
+                let new_toc = reader.read_toc().await?;
+                let new_disc_id = new_toc.calculate_disc_id();
+                println!("Disc ID: {}", new_disc_id.bright_cyan());
+
+                // Look up this specific disc in MusicBrainz to get correct tracks
+                if !no_lookup {
+                    let mb_client = MusicBrainzClient::new();
+
+                    // First try to get the specific disc from the known release
+                    let mut disc_found = false;
+                    if let Some(release_id) = &mb_release_id {
+                        println!(
+                            "Looking up disc {} in the selected release...",
+                            current_disc
+                        );
+                        if let Ok(Some(disc_album)) = mb_client
+                            .get_release_disc(release_id, &new_disc_id, current_disc)
+                            .await
+                        {
+                            println!(
+                                "✓ Found disc {} with {} tracks",
+                                current_disc,
+                                disc_album.tracks.len()
+                            );
+                            base_album.tracks = disc_album.tracks;
+                            base_album.disc_id = new_disc_id.clone();
+                            disc_found = true;
+                        }
+                    }
+
+                    // If that fails, fall back to searching by disc ID and TOC
+                    if !disc_found {
+                        println!("Searching for disc by ID and TOC...");
+                        let releases = Self::lookup_releases_in_musicbrainz(
+                            &mb_client,
+                            &new_disc_id,
+                            &new_toc,
+                        )
+                        .await?;
+
+                        // Find the release that matches our base album and has the right disc number
+                        if let Some(matching_release) = releases.iter().find(|r| {
+                            r.artist == base_album.artist
+                                && r.album_title == base_album.album_title
+                                && r.disc_number == Some(current_disc)
+                        }) {
+                            // Update tracks for current disc
+                            base_album.tracks = matching_release.tracks.clone();
+                            base_album.disc_id = new_disc_id.clone();
+                            println!(
+                                "✓ Found matching disc with {} tracks",
+                                base_album.tracks.len()
+                            );
+                        } else {
+                            println!("{}", "Warning: Could not find matching disc in MusicBrainz, using generic track names".yellow());
+                            // Generate generic track names based on TOC
+                            base_album.tracks.clear();
+                            for i in 1..=new_toc.last_track {
+                                base_album.tracks.push(CDTrack {
+                                    track_num: i as i32,
+                                    title: format!("Track {}", i),
+                                    artist: None,
+                                    duration: 0.0,
+                                    isrc: None,
+                                    mb_recording_id: None,
+                                    start_offset: 0,
+                                    end_offset: 0,
+                                    pregap: None,
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Update current disc number in album metadata
+            let mut album = base_album.clone();
+            album.disc_number = Some(current_disc);
+
+            // Store original track numbers for cdparanoia and adjust display numbers for continuous numbering
+            if current_disc > starting_disc && !album.tracks.is_empty() {
+                for track in album.tracks.iter_mut() {
+                    // Store the original disc track number in start_offset temporarily
+                    track.start_offset = track.track_num;
+                    // Adjust track number for continuous display
+                    track.track_num += total_tracks_so_far;
+                }
+            } else {
+                // For disc 1, just store original track numbers
+                for track in album.tracks.iter_mut() {
+                    track.start_offset = track.track_num;
+                }
+            }
+
+            println!(
+                "\n{}",
+                format!("Processing Disc {} of {}", current_disc, total_discs).bright_green()
+            );
+            if !just_cover {
+                if total_tracks_so_far > 0 {
+                    println!(
+                        "  Tracks: {} (numbered {}-{})",
+                        album.tracks.len(),
+                        total_tracks_so_far + 1,
+                        total_tracks_so_far + album.tracks.len() as i32
+                    );
+                } else {
+                    println!("  Tracks: {}", album.tracks.len());
+                }
+            }
+
+            // Determine output directory
+            let temp_dir = tempfile::tempdir()?;
+            let rip_output = temp_dir.path();
+
+            // Handle just_cover mode vs full rip
+            let ripped_files = if just_cover {
+                println!("\n{}", "Downloading cover art only...".bright_blue());
+
+                // Create the album directory structure in temp (no Disc N subdirectory)
+                let album_dir = rip_output
+                    .join(sanitize_filename(&album.artist))
+                    .join(sanitize_filename(&album.album_title));
+
+                tokio::fs::create_dir_all(&album_dir).await?;
+
+                // Download only the cover art (only for disc 1)
+                let mut files = Vec::new();
+                if current_disc == starting_disc && album.cover_art_url.is_some() {
+                    if let Some(cover_url) = &album.cover_art_url {
+                        println!("Found cover art URL: {}", cover_url);
+                        match CDRipper::download_cover_art_static(cover_url, &album_dir).await {
+                            Ok(cover_path) => {
+                                println!("✓ Cover art downloaded");
+                                files.push(cover_path);
+                            }
+                            Err(e) => {
+                                println!("❌ Failed to download cover art: {}", e);
+                            }
+                        }
+                    }
+                } else if current_disc > starting_disc {
+                    println!(
+                        "Skipping cover art for disc {} (only downloading once)",
+                        current_disc
+                    );
+                }
+                files
+            } else {
+                // Full CD rip
+                println!("\n{}", "Starting CD rip...".bright_blue());
+                ripper.rip_cd(&album, rip_output).await?
+            };
+
+            // Upload to storage
+            println!("\n{}", "Uploading to storage...".bright_blue());
+            let artist_dir = PathBuf::from(sanitize_filename(&album.artist));
+            let album_dir = artist_dir.join(sanitize_filename(&album.album_title));
+
+            // Create album directory if it doesn't exist (same directory for all discs)
+            storage.create_directory(&album_dir).await?;
+
+            let pb = ProgressBar::new(ripped_files.len() as u64);
+            pb.set_style(
+                ProgressStyle::default_bar()
+                    .template("{spinner:.green} [{bar:40.cyan/blue}] {pos}/{len} {msg}")
+                    .unwrap()
+                    .progress_chars("#>-"),
+            );
+
+            for file_path in &ripped_files {
+                let file_name = file_path.file_name().unwrap().to_str().unwrap();
+
+                // Skip cover art if it's not the first disc (already uploaded)
+                if file_name == "folder.jpg" && current_disc > starting_disc {
+                    pb.inc(1);
+                    continue;
+                }
+
+                pb.set_message(format!("Uploading: {}", file_name));
+
+                let contents = tokio::fs::read(file_path).await?;
+                let dest_path = album_dir.join(file_name);
+
+                storage.write_file(&dest_path, &contents).await?;
+
+                if file_name == "folder.jpg" {
+                    println!("  ✓ Uploaded cover art");
+                }
+
+                pb.inc(1);
+            }
+
+            pb.finish_with_message(format!("Disc {} complete!", current_disc));
+
+            // Update total tracks count for next disc
+            if !just_cover {
+                total_tracks_so_far += album.tracks.len() as i32;
+            }
+
+            // Move to next disc
+            current_disc += 1;
+        }
+
+        // Final summary
+        if skip_remaining {
+            println!(
+                "\n{} Imported {} of {} discs for: {} - {}",
+                "✓".bright_green(),
+                current_disc - starting_disc,
+                total_discs,
+                base_album.artist,
+                base_album.album_title
+            );
+        } else {
+            println!(
+                "\n{} Successfully imported all {} disc(s): {} - {}",
+                "✓".bright_green(),
+                total_discs,
+                base_album.artist,
+                base_album.album_title
+            );
+        }
 
         Ok(())
     }

@@ -86,3 +86,7 @@ image = "0.25"
 
 # Audio metadata tagging
 lofty = "0.21"
+
+# CD support
+musicbrainz_rs = "0.12"
+sha1 = "0.10"

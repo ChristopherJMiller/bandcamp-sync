@@ -16,6 +16,12 @@ use super::driver::DriverManager;
 
 const KEYRING_SERVICE: &str = "bandcamp-sync";
 
+/// WebDAV authentication credentials
+pub struct WebDavAuth {
+    pub username: String,
+    pub password: String,
+}
+
 /// Manages authentication for various services
 pub struct AuthManager;
 
@@ -313,6 +319,12 @@ impl AuthManager {
         } else {
             anyhow::bail!("WebDAV server returned status: {}", response.status())
         }
+    }
+
+    // Helper to get WebDAV auth (used by CD import)
+    pub async fn get_webdav_auth(url: &str) -> Result<WebDavAuth> {
+        let (username, password) = Self::authenticate_webdav(url, None, None).await?;
+        Ok(WebDavAuth { username, password })
     }
 
     // Keyring helpers

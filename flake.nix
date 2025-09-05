@@ -31,12 +31,19 @@
       in
       {
         devShells.default = pkgs.mkShell {
-          buildInputs = with pkgs; [
+          nativeBuildInputs = with pkgs; [
             rustToolchain
             pkg-config
+          ];
+          
+          buildInputs = with pkgs; [
             openssl
             geckodriver
             dbus.dev
+            
+            # CD ripping and audio processing
+            cdparanoia
+            ffmpeg_7-full
           ];
         };
 
@@ -62,6 +69,8 @@
             buildInputs = with pkgs; [
               openssl
               dbus
+              cdparanoia
+              ffmpeg_7-full
             ];
 
             # Build configuration
