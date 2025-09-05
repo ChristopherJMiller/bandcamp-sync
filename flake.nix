@@ -35,12 +35,12 @@
             rustToolchain
             pkg-config
           ];
-          
+
           buildInputs = with pkgs; [
             openssl
             geckodriver
             dbus.dev
-            
+
             # CD ripping and audio processing
             cdparanoia
             ffmpeg_7-full
@@ -51,7 +51,7 @@
           # Main binary
           bandcamp-sync = pkgs.rustPlatform.buildRustPackage {
             pname = "bandcamp-sync";
-            version = "0.3.0";
+            version = "0.4.0";
             src = ./.;
 
             cargoLock = {
