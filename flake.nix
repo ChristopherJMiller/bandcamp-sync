@@ -90,7 +90,7 @@
 
             meta = with pkgs.lib; {
               description = "Sync Bandcamp purchases to WebDAV music library";
-              homepage = "https://github.com/chris-miller/bandcamp-sync";
+              homepage = "https://github.com/ChristopherJMiller/bandcamp-sync";
               license = licenses.gpl3;
               maintainers = [ ];
               platforms = platforms.unix;
