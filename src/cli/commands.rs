@@ -27,6 +27,7 @@ struct SyncCommandOptions {
     no_parallel: bool,
     no_cover: bool,
     filters: FilterOptions,
+    shallow: bool,
 }
 
 /// Storage backend options
@@ -58,6 +59,7 @@ impl CommandHandler {
                 missing_only,
                 artist_filter,
                 exclude_artist,
+                shallow,
             } => {
                 Self::handle_diff(
                     webdav_url,
@@ -65,6 +67,7 @@ impl CommandHandler {
                     missing_only,
                     artist_filter,
                     exclude_artist,
+                    shallow,
                 )
                 .await
             }
@@ -79,6 +82,7 @@ impl CommandHandler {
                 artist_filter,
                 exclude_artist,
                 album_filter,
+                shallow,
             } => {
                 let options = SyncCommandOptions {
                     storage: StorageOptions {
@@ -95,6 +99,7 @@ impl CommandHandler {
                         exclude_artist,
                         album_filter,
                     },
+                    shallow,
                 };
                 Self::handle_sync(options).await
             }
@@ -333,6 +338,7 @@ impl CommandHandler {
                 parallel_downloads: 0, // Not needed for scan
                 skip_cover_art: false,
                 audio_format: crate::storage::AudioFormat::Aac,
+                shallow: true, // Scan doesn't need deep checking
             },
         );
 
@@ -368,6 +374,7 @@ impl CommandHandler {
         missing_only: bool,
         artist_filter: Option<String>,
         exclude_artist: Option<String>,
+        shallow: bool,
     ) -> Result<()> {
         let storage = Self::get_storage(webdav_url, local_path).await?;
 
@@ -405,6 +412,7 @@ impl CommandHandler {
                 parallel_downloads: 0, // Not needed for scan
                 skip_cover_art: false,
                 audio_format: crate::storage::AudioFormat::Aac,
+                shallow,
             },
         );
         let library = sync_engine.scan_library().await?;
@@ -523,6 +531,7 @@ impl CommandHandler {
                 parallel_downloads,
                 skip_cover_art: options.no_cover,
                 audio_format: storage_format,
+                shallow: options.shallow,
             },
         );
 

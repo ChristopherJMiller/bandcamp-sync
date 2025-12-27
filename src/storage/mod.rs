@@ -63,6 +63,9 @@ pub struct SyncOptions {
     pub parallel_downloads: usize, // 0 = disabled, 1-6 = number of workers
     pub skip_cover_art: bool,
     pub audio_format: AudioFormat,
+    /// When false (default), perform deep file-level checking to detect incomplete albums
+    /// When true, only check if album directory exists (faster but won't retry failed syncs)
+    pub shallow: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -121,6 +124,30 @@ impl DryRunResult {
             directories_to_create: Vec::new(),
             files_to_write: Vec::new(),
             conflicts: Vec::new(),
+        }
+    }
+}
+
+/// Configuration for retry behavior on transient failures
+#[derive(Debug, Clone)]
+pub struct RetryConfig {
+    /// Maximum number of retry attempts (default: 5)
+    pub max_attempts: u32,
+    /// Initial delay in milliseconds (default: 1000)
+    pub initial_delay_ms: u64,
+    /// Maximum delay in milliseconds (default: 16000)
+    pub max_delay_ms: u64,
+    /// Backoff multiplier (default: 2.0)
+    pub backoff_factor: f64,
+}
+
+impl Default for RetryConfig {
+    fn default() -> Self {
+        Self {
+            max_attempts: 5,
+            initial_delay_ms: 1000,
+            max_delay_ms: 16000,
+            backoff_factor: 2.0,
         }
     }
 }

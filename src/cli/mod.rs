@@ -90,6 +90,10 @@ pub enum Commands {
         /// Exclude artists matching this pattern
         #[arg(long, conflicts_with = "artist_filter")]
         exclude_artist: Option<String>,
+
+        /// Skip file-level checking (faster but won't detect incomplete albums)
+        #[arg(long)]
+        shallow: bool,
     },
 
     /// Sync missing albums from Bandcamp to destination
@@ -133,6 +137,10 @@ pub enum Commands {
         /// Filter by album name
         #[arg(long)]
         album_filter: Option<String>,
+
+        /// Skip file-level checking (faster but won't detect incomplete albums)
+        #[arg(long)]
+        shallow: bool,
     },
 
     /// Generate shell completions

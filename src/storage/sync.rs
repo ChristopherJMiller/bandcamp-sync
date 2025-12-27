@@ -121,16 +121,23 @@ impl SyncEngine {
         Ok(library)
     }
 
-    /// Compares Bandcamp collection with storage to find missing albums
+    /// Compares Bandcamp collection with storage to find missing or incomplete albums
     pub async fn compare_collections(
         &self,
         bandcamp: &[CollectionItem],
         library: &[MusicLibraryItem],
     ) -> Vec<CollectionItem> {
-        let library_set: HashSet<(String, String)> = library
+        // Build lookup map: (sanitized_artist, sanitized_album) -> track count
+        let library_map: std::collections::HashMap<(String, String), usize> = library
             .iter()
-            .map(|item| (item.artist.to_lowercase(), item.album.to_lowercase()))
+            .map(|item| {
+                let key = (item.artist.to_lowercase(), item.album.to_lowercase());
+                (key, item.tracks.len())
+            })
             .collect();
+
+        let mut missing_count = 0;
+        let mut incomplete_count = 0;
 
         let missing: Vec<CollectionItem> = bandcamp
             .iter()
@@ -139,17 +146,61 @@ impl SyncEngine {
                 let sanitized_artist = sanitize_filename(&item.band_name).to_lowercase();
                 let sanitized_album = sanitize_filename(&item.item_title).to_lowercase();
                 let key = (sanitized_artist, sanitized_album);
-                !library_set.contains(&key)
+
+                match library_map.get(&key) {
+                    None => {
+                        // Album doesn't exist at all
+                        missing_count += 1;
+                        true
+                    }
+                    Some(&local_track_count) => {
+                        // Album exists - in deep mode, check if it's complete
+                        if self.options.shallow {
+                            // Shallow mode: album exists, skip it
+                            false
+                        } else {
+                            // Deep mode: check track count
+                            if let Some(expected_tracks) = item.num_streamable_tracks {
+                                let expected = expected_tracks as usize;
+                                // Allow for cover art file in count (+1)
+                                // Mark as incomplete if we have significantly fewer tracks
+                                if local_track_count < expected {
+                                    debug!(
+                                        "Album {} - {} is incomplete: has {} tracks, expected {}",
+                                        item.band_name, item.item_title, local_track_count, expected
+                                    );
+                                    incomplete_count += 1;
+                                    true
+                                } else {
+                                    false
+                                }
+                            } else {
+                                // No track count info from Bandcamp, assume complete
+                                false
+                            }
+                        }
+                    }
+                }
             })
             .cloned()
             .collect();
 
-        info!(
-            "Comparison result: {} in Bandcamp, {} in library, {} missing",
-            bandcamp.len(),
-            library.len(),
-            missing.len()
-        );
+        if incomplete_count > 0 {
+            info!(
+                "Comparison result: {} in Bandcamp, {} in library, {} missing, {} incomplete",
+                bandcamp.len(),
+                library.len(),
+                missing_count,
+                incomplete_count
+            );
+        } else {
+            info!(
+                "Comparison result: {} in Bandcamp, {} in library, {} missing",
+                bandcamp.len(),
+                library.len(),
+                missing_count
+            );
+        }
 
         missing
     }
@@ -416,22 +467,22 @@ impl SyncEngine {
             {
                 Ok(_) => {
                     pb.inc(1);
-                    println!(
+                    pb.println(format!(
                         "  {} {} - {}",
                         "✓".green(),
                         item.band_name.bright_cyan(),
                         item.item_title.bright_white()
-                    );
+                    ));
                 }
                 Err(e) => {
                     pb.inc(1);
-                    println!(
+                    pb.println(format!(
                         "  {} {} - {}: {}",
                         "✗".red(),
                         item.band_name.bright_cyan(),
                         item.item_title.bright_white(),
                         e.to_string().red()
-                    );
+                    ));
                     // Continue with next album even if one fails
                 }
             }
@@ -526,21 +577,21 @@ impl SyncEngine {
 
                     match &result {
                         Ok(_) => {
-                            println!(
+                            let _ = multi_progress.println(format!(
                                 "  {} {} - {}",
                                 "✓".green(),
                                 item.band_name.bright_cyan(),
                                 item.item_title.bright_white()
-                            );
+                            ));
                         }
                         Err(e) => {
-                            println!(
+                            let _ = multi_progress.println(format!(
                                 "  {} {} - {}: {}",
                                 "✗".red(),
                                 item.band_name.bright_cyan(),
                                 item.item_title.bright_white(),
                                 e.to_string().red()
-                            );
+                            ));
                         }
                     }
 

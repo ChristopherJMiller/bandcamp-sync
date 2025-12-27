@@ -2,13 +2,15 @@ use anyhow::{Context, Result};
 use async_trait::async_trait;
 use reqwest_dav::{Auth, Client, ClientBuilder, Depth};
 use std::path::{Path, PathBuf};
-use tracing::{debug, info};
+use std::time::Duration;
+use tracing::{debug, info, warn};
 
-use super::{StorageBackend, StorageItem};
+use super::{RetryConfig, StorageBackend, StorageItem};
 
 pub struct WebDavStorage {
     client: Client,
     root_url: String,
+    retry_config: RetryConfig,
 }
 
 impl WebDavStorage {
@@ -16,6 +18,15 @@ impl WebDavStorage {
         url: &str,
         username: Option<String>,
         password: Option<String>,
+    ) -> Result<Self> {
+        Self::with_retry_config(url, username, password, RetryConfig::default()).await
+    }
+
+    pub async fn with_retry_config(
+        url: &str,
+        username: Option<String>,
+        password: Option<String>,
+        retry_config: RetryConfig,
     ) -> Result<Self> {
         // Ensure URL is valid
         let _parsed =
@@ -38,6 +49,7 @@ impl WebDavStorage {
         Ok(Self {
             client,
             root_url: url.to_string(),
+            retry_config,
         })
     }
 
@@ -48,6 +60,93 @@ impl WebDavStorage {
         } else {
             format!("/{}", path_str.trim_start_matches('/'))
         }
+    }
+
+    /// Check if an error is transient and worth retrying
+    /// We retry on most errors EXCEPT clear permanent failures
+    fn is_transient_error(err: &reqwest_dav::Error) -> bool {
+        let err_str = format!("{:?}", err);
+
+        // Don't retry on permanent client errors
+        if err_str.contains("status: 401")
+            || err_str.contains("status: 403")
+            || err_str.contains("status: 404")
+            || err_str.contains("Unauthorized")
+            || err_str.contains("Forbidden")
+        {
+            return false;
+        }
+
+        // Retry on everything else - network issues, server errors, timeouts, etc.
+        true
+    }
+
+    /// Calculate delay with jitter for retry attempt
+    fn calculate_delay(&self, attempt: u32) -> Duration {
+        use rand::Rng;
+
+        let base_delay = self.retry_config.initial_delay_ms as f64
+            * self.retry_config.backoff_factor.powi(attempt as i32 - 1);
+        let capped_delay = base_delay.min(self.retry_config.max_delay_ms as f64);
+
+        // Add ±10% jitter
+        let jitter_range = capped_delay * 0.1;
+        let jitter = rand::thread_rng().gen_range(-jitter_range..jitter_range);
+        let final_delay = (capped_delay + jitter).max(0.0) as u64;
+
+        Duration::from_millis(final_delay)
+    }
+
+    /// Execute a WebDAV PUT operation with retry
+    async fn put_with_retry(&self, path: &str, data: Vec<u8>) -> Result<(), reqwest_dav::Error> {
+        let mut last_error = None;
+
+        for attempt in 1..=self.retry_config.max_attempts {
+            match self.client.put(path, data.clone()).await {
+                Ok(()) => return Ok(()),
+                Err(e) => {
+                    if attempt < self.retry_config.max_attempts && Self::is_transient_error(&e) {
+                        let delay = self.calculate_delay(attempt);
+                        warn!(
+                            "WebDAV PUT {} failed (attempt {}/{}): {:?}. Retrying in {:?}...",
+                            path, attempt, self.retry_config.max_attempts, e, delay
+                        );
+                        tokio::time::sleep(delay).await;
+                        last_error = Some(e);
+                    } else {
+                        return Err(e);
+                    }
+                }
+            }
+        }
+
+        Err(last_error.unwrap())
+    }
+
+    /// Execute a WebDAV MKCOL operation with retry
+    async fn mkcol_with_retry(&self, path: &str) -> Result<(), reqwest_dav::Error> {
+        let mut last_error = None;
+
+        for attempt in 1..=self.retry_config.max_attempts {
+            match self.client.mkcol(path).await {
+                Ok(()) => return Ok(()),
+                Err(e) => {
+                    if attempt < self.retry_config.max_attempts && Self::is_transient_error(&e) {
+                        let delay = self.calculate_delay(attempt);
+                        warn!(
+                            "WebDAV MKCOL {} failed (attempt {}/{}): {:?}. Retrying in {:?}...",
+                            path, attempt, self.retry_config.max_attempts, e, delay
+                        );
+                        tokio::time::sleep(delay).await;
+                        last_error = Some(e);
+                    } else {
+                        return Err(e);
+                    }
+                }
+            }
+        }
+
+        Err(last_error.unwrap())
     }
 }
 
@@ -160,9 +259,11 @@ impl StorageBackend for WebDavStorage {
             let current_path = self.make_path(&current);
 
             if !self.exists(&current).await? {
-                self.client.mkcol(&current_path).await.with_context(|| {
-                    format!("Failed to create WebDAV directory: {}", current_path)
-                })?;
+                self.mkcol_with_retry(&current_path)
+                    .await
+                    .with_context(|| {
+                        format!("Failed to create WebDAV directory: {}", current_path)
+                    })?;
             }
         }
 
@@ -184,8 +285,7 @@ impl StorageBackend for WebDavStorage {
             self.create_directory(parent).await?;
         }
 
-        self.client
-            .put(&webdav_path, data.to_vec())
+        self.put_with_retry(&webdav_path, data.to_vec())
             .await
             .with_context(|| format!("Failed to write WebDAV file: {}", webdav_path))?;
 
